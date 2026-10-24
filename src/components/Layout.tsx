@@ -11,6 +11,9 @@ const ENLACES: { to: string; nombre: string; corto: string; modulo?: Modulo; ico
   { to: '/usuarios', nombre: 'Usuarios', corto: 'Usuarios', modulo: 'usuarios', icono: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6" /></> },
 ];
 
+// En el móvil, Ajustes y Plataforma van arriba para no saturar la barra de abajo.
+const EXTRA = ['/ajustes', '/plataforma'];
+
 export default function Layout({ children }: { children: ReactNode }) {
   const { perfil, permisos, esDueno, salir } = useSesion();
   const visibles = ENLACES.filter((e) => !e.modulo || (permisos && puede(permisos, e.modulo)));
@@ -26,13 +29,16 @@ export default function Layout({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="user">
+          {visibles.filter((e) => EXTRA.includes(e.to)).map((e) => (
+            <NavLink key={e.to} to={e.to} className="solo-movil" style={{ color: '#fff', fontSize: 13 }}>{e.nombre}</NavLink>
+          ))}
           <span>{perfil?.nombre}</span>
           <button type="button" onClick={salir}>Salir</button>
         </div>
       </header>
       <main className="page">{children}</main>
-      <nav className="bottomnav" aria-label="Principal" style={{ ['--n' as string]: visibles.length }}>
-        {visibles.map((e) => (
+      <nav className="bottomnav" aria-label="Principal" style={{ ['--n' as string]: visibles.filter((e) => !EXTRA.includes(e.to)).length }}>
+        {visibles.filter((e) => !EXTRA.includes(e.to)).map((e) => (
           <NavLink key={e.to} to={e.to} end={e.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">{e.icono}</svg>
             {e.corto}

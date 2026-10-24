@@ -4,6 +4,7 @@ import { useSesion } from '../lib/sesion';
 import { supabase, mensajeError } from '../lib/supabase';
 import { TIPOS, cargarActividades, fechaLarga, hora, hoyIso, titulo, type Actividad } from '../lib/calendario';
 import { puede } from '../lib/permisos';
+import type { EstadoHoy } from '../lib/wellness';
 
 function esIOS() {
   return /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -16,8 +17,14 @@ export default function Inicio() {
   const { perfil, permisos } = useSesion();
   const [hoy, setHoy] = useState<Actividad[]>([]);
   const [pendientes, setPendientes] = useState<Actividad[]>([]);
+  const [estado, setEstado] = useState<EstadoHoy | null>(null);
   const [error, setError] = useState('');
   const conCalendario = !!permisos && puede(permisos, 'calendario');
+
+  useEffect(() => {
+    if (!perfil) return;
+    supabase.rpc('estado_hoy').then(({ data }) => setEstado((data as EstadoHoy) ?? null));
+  }, [perfil]);
 
   const cargar = useCallback(async () => {
     if (!perfil || !conCalendario) return;
@@ -52,6 +59,32 @@ export default function Inicio() {
       </div>
 
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+
+      {estado?.wellness_toca && !estado.wellness_hecho && (
+        <Link to="/wellness" className="card" style={{ padding: 16, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, boxShadow: 'inset 4px 0 0 #1E9E4A, 0 1px 2px rgba(22,24,29,.06)' }}>
+          <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <strong style={{ fontSize: 17 }}>¿Cómo llegas hoy?</strong>
+            <span className="small muted">Wellness · 4 preguntas</span>
+          </span>
+          <span className="btn btn-primary" style={{ pointerEvents: 'none' }}>Responder</span>
+        </Link>
+      )}
+      {estado?.rpe_toca && !estado.rpe_hecho && estado.rpe_disponible && (
+        <Link to="/rpe" className="card" style={{ padding: 16, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, boxShadow: 'inset 4px 0 0 #C8162B, 0 1px 2px rgba(22,24,29,.06)' }}>
+          <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <strong style={{ fontSize: 17 }}>¿Qué tan duro fue hoy?</strong>
+            <span className="small muted">RPE · del 1 al 10</span>
+          </span>
+          <span className="btn btn-primary" style={{ pointerEvents: 'none' }}>Responder</span>
+        </Link>
+      )}
+      {estado && (estado.wellness_hecho || estado.rpe_hecho || (estado.rpe_toca && !estado.rpe_disponible)) && (
+        <div className="card row small" style={{ padding: '12px 16px', gap: '6px 16px' }}>
+          {estado.wellness_hecho && <span>Wellness ✓ · preparación <strong>{Number(estado.preparacion).toLocaleString('es-ES', { maximumFractionDigits: 1 })}</strong> <Link to="/wellness" className="xs">corregir</Link></span>}
+          {estado.rpe_hecho && <span>RPE ✓ · <strong>{estado.rpe}</strong> <Link to="/rpe" className="xs">corregir</Link></span>}
+          {estado.rpe_toca && !estado.rpe_hecho && !estado.rpe_disponible && <span className="muted">El RPE se habilita a las {estado.rpe_desde}.</span>}
+        </div>
+      )}
 
       {pendientes.map((a) => (
         <div key={a.id} className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10, boxShadow: 'inset 3px 0 0 #E07A1F, 0 1px 2px rgba(22,24,29,.06)' }}>

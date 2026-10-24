@@ -35,6 +35,8 @@ export default function Ajustes() {
   const [logoClub, setLogoClub] = useState<string | null>(perfil?.club.logo_club_url ?? null);
   const [logoLiga, setLogoLiga] = useState<string | null>(perfil?.club.logo_liga_url ?? null);
   const [subiendo, setSubiendo] = useState<'club' | 'liga' | null>(null);
+  const [wModo, setWModo] = useState(perfil?.club.wellness_modo ?? 'todos');
+  const [rModo, setRModo] = useState(perfil?.club.rpe_modo ?? 'con_actividad');
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
 
   if (!perfil) return null;
@@ -95,6 +97,26 @@ export default function Ajustes() {
           </label>
         </div>
         <button type="button" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => guardar()}>Guardar</button>
+      </section>
+
+      <section className="card stack" style={{ padding: 16, gap: 12 }} aria-label="Cuestionarios">
+        <h2 style={{ margin: 0, fontSize: 16 }}>Cuestionarios de los jugadores</h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+          {([['Wellness', wModo, setWModo], ['RPE', rModo, setRModo]] as const).map(([t, v, set]) => (
+            <label key={t} className="field"><span>{t}</span>
+              <select className="select" value={v} onChange={(e) => set(e.target.value)}>
+                <option value="todos">Todos los días</option>
+                <option value="con_actividad">Solo días con actividad</option>
+                <option value="no">No activo</option>
+              </select>
+            </label>
+          ))}
+        </div>
+        <p className="xs muted" style={{ margin: 0 }}>«Días con actividad»: cuando el jugador tiene una actividad deportiva ese día. El RPE aparece 30 minutos después de la última.</p>
+        <button type="button" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={async () => {
+          const { error } = await supabase.rpc('actualizar_recurrencia', { p_wellness: wModo, p_rpe: rModo });
+          if (error) setAviso({ ok: false, texto: mensajeError(error) }); else { await recargar(); setAviso({ ok: true, texto: 'Guardado.' }); }
+        }}>Guardar</button>
       </section>
 
       {aviso && <p className={`notice ${aviso.ok ? 'notice-ok' : 'notice-error'}`} role="status" style={{ margin: 0 }}>{aviso.texto}</p>}
