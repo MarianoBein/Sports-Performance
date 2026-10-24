@@ -12,8 +12,9 @@ const ENLACES: { to: string; nombre: string; corto: string; modulo?: Modulo; ico
 ];
 
 export default function Layout({ children }: { children: ReactNode }) {
-  const { perfil, permisos, salir } = useSesion();
+  const { perfil, permisos, esDueno, salir } = useSesion();
   const visibles = ENLACES.filter((e) => !e.modulo || (permisos && puede(permisos, e.modulo)));
+  if (esDueno) visibles.push({ to: '/plataforma', nombre: 'Plataforma', corto: 'Plataforma', icono: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></> });
   return (
     <>
       <header className="topbar">

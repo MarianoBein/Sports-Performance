@@ -120,6 +120,17 @@ export default function Usuarios() {
           <h1 className="display" style={{ fontSize: 38 }}>Usuarios</h1>
         </div>
         <div className="row">
+          <button type="button" className="btn" onClick={async () => {
+            const { data, error } = await supabase.rpc('exportar_club');
+            if (error) { setError(mensajeError(error)); return; }
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `${perfil.club.nombre.replace(/\s+/g, '_')}_datos_${new Date().toISOString().slice(0, 10)}.json`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            cargar();
+          }}>Exportar datos del club</button>
           <button type="button" className="btn btn-primary" onClick={() => setCodigoAbierto(true)}>+ Código de alta</button>
         </div>
       </div>

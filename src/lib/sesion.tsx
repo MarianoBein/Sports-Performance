@@ -16,6 +16,7 @@ type Ctx = {
   sesion: Session | null;
   perfil: Perfil | null;
   permisos: Permisos | null;
+  esDueno: boolean;
   recargar: () => Promise<void>;
   salir: () => Promise<void>;
 };
@@ -26,9 +27,12 @@ export function SesionProvider({ children }: { children: ReactNode }) {
   const [sesion, setSesion] = useState<Session | null>(null);
   const [perfil, setPerfil] = useState<Perfil | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [esDueno, setEsDueno] = useState(false);
 
   const cargarPerfil = useCallback(async (s: Session | null) => {
-    if (!s) { setPerfil(null); return; }
+    if (!s) { setPerfil(null); setEsDueno(false); return; }
+    const dueno = await supabase.rpc('soy_dueno');
+    setEsDueno(dueno.data === true);
     const { data } = await supabase
       .from('perfiles')
       .select('*, rol:roles(*), club:clubs(*)')
@@ -65,7 +69,7 @@ export function SesionProvider({ children }: { children: ReactNode }) {
   const permisos = perfil ? permisosEfectivos(perfil.rol.permisos, perfil.permisos_ajustados, perfil.es_admin) : null;
 
   return (
-    <SesionCtx.Provider value={{ cargando, sesion, perfil, permisos, recargar, salir }}>
+    <SesionCtx.Provider value={{ cargando, sesion, perfil, permisos, esDueno, recargar, salir }}>
       {children}
     </SesionCtx.Provider>
   );
