@@ -28,7 +28,7 @@ export default function Entrar() {
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, textAlign: 'center', margin: '32px 0 12px' }}>
         <div className="logo-box" aria-hidden="true">SP</div>
         <h1 className="display" style={{ fontSize: 40 }}>Sports Performance</h1>
-        <p className="muted" style={{ margin: 0 }}>Tu agenda, tu entreno y tu wellness, en un solo lugar.</p>
+        <p className="muted" style={{ margin: 0 }}>Tu entorno deportivo, en un solo lugar.</p>
       </div>
       <form className="stack" onSubmit={enviar}>
         <label className="field"><span>Email</span>

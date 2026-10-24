@@ -289,8 +289,8 @@ export default function Usuarios() {
         </Dialogo>
       )}
       {codigoAbierto && <CodigoAlta roles={roles} grupos={grupos} onCerrar={() => { setCodigoAbierto(false); cargar(); }} />}
-      {grupoAbierto && <NuevoGrupo onCerrar={() => setGrupoAbierto(false)} onCreado={async () => { setGrupoAbierto(false); await cargar(); }} />}
-      {rolAbierto && <NuevoRol roles={roles} onCerrar={() => setRolAbierto(false)} onCreado={async () => { setRolAbierto(false); await cargar(); }} />}
+      {grupoAbierto && <NuevoGrupo existentes={grupos.map((g) => g.nombre)} onCerrar={() => setGrupoAbierto(false)} onCreado={async () => { setGrupoAbierto(false); await cargar(); }} />}
+      {rolAbierto && <NuevoRol onCerrar={() => setRolAbierto(false)} onCreado={async () => { setRolAbierto(false); await cargar(); }} />}
     </div>
   );
 }
@@ -403,6 +403,7 @@ function CodigoAlta({ roles, grupos, onCerrar }: { roles: Rol[]; grupos: Grupo[]
         {rol?.es_jugador && (
           <label className="field"><span>Grupo</span>
             <select className="select" value={grupoId} onChange={(e) => { setGrupoId(e.target.value); setRes(null); }}>
+              <option value="">Sin grupo</option>
               {grupos.map((g) => <option key={g.id} value={g.id}>{g.nombre}</option>)}
             </select>
           </label>
@@ -430,9 +431,12 @@ function CodigoAlta({ roles, grupos, onCerrar }: { roles: Rol[]; grupos: Grupo[]
   );
 }
 
-function NuevoGrupo({ onCerrar, onCreado }: { onCerrar: () => void; onCreado: () => void }) {
+const SUGERENCIAS_GRUPO = ['Base', 'Escolta', 'Alero', 'Ala-pívot', 'Pívot'];
+
+function NuevoGrupo({ existentes, onCerrar, onCreado }: { existentes: string[]; onCerrar: () => void; onCreado: () => void }) {
   const [nombre, setNombre] = useState('');
   const [error, setError] = useState('');
+  const sugerencias = SUGERENCIAS_GRUPO.filter((s) => !existentes.some((e) => e.toLowerCase() === s.toLowerCase()));
   async function crear() {
     const { error } = await supabase.rpc('crear_grupo', { p_nombre: nombre });
     if (error) { setError(mensajeError(error)); return; }
@@ -441,34 +445,34 @@ function NuevoGrupo({ onCerrar, onCreado }: { onCerrar: () => void; onCreado: ()
   return (
     <Dialogo titulo="Nuevo grupo" ancho={460} onCerrar={onCerrar}
       pie={<><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="button" className="btn btn-primary" disabled={!nombre.trim()} onClick={crear}>Crear grupo</button></>}>
-      <label className="field"><span>Nombre</span><input className="input" autoFocus value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Por ejemplo: Interiores" /></label>
+      <label className="field"><span>Nombre</span><input className="input" autoFocus value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Escribe un nombre o elige una sugerencia" /></label>
+      {sugerencias.length > 0 && (
+        <div className="row" style={{ gap: 6 }}>
+          <span className="xs muted">Sugerencias:</span>
+          {sugerencias.map((s) => (
+            <button key={s} type="button" className="chip" aria-pressed={nombre === s} onClick={() => setNombre(s)}>{s}</button>
+          ))}
+        </div>
+      )}
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
     </Dialogo>
   );
 }
 
-function NuevoRol({ roles, onCerrar, onCreado }: { roles: Rol[]; onCerrar: () => void; onCreado: () => void }) {
+function NuevoRol({ onCerrar, onCreado }: { onCerrar: () => void; onCreado: () => void }) {
   const [nombre, setNombre] = useState('');
-  const [desde, setDesde] = useState(roles[0]?.id ?? '');
-  const origen = roles.find((r) => r.id === desde);
-  const [permisos, setPermisos] = useState<Permisos>(permisosEfectivos(origen?.permisos ?? ({} as Permisos), null, false));
+  const [permisos, setPermisos] = useState<Permisos>(permisosEfectivos({}, null, false));
   const [error, setError] = useState('');
   async function crear() {
-    const { error } = await supabase.rpc('crear_rol', { p_nombre: nombre, p_permisos: permisos, p_es_jugador: origen?.es_jugador ?? false });
+    const { error } = await supabase.rpc('crear_rol', { p_nombre: nombre, p_permisos: permisos, p_es_jugador: false });
     if (error) { setError(mensajeError(error)); return; }
     onCreado();
   }
   return (
     <Dialogo titulo="Nuevo rol" ancho={680} onCerrar={onCerrar}
       pie={<><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="button" className="btn btn-primary" disabled={!nombre.trim()} onClick={crear}>Crear rol</button></>}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-        <label className="field"><span>Nombre del rol</span><input className="input" autoFocus value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Por ejemplo: Nutricionista" /></label>
-        <label className="field"><span>Partir de</span>
-          <select className="select" value={desde} onChange={(e) => { setDesde(e.target.value); const r = roles.find((x) => x.id === e.target.value); if (r) setPermisos(permisosEfectivos(r.permisos, null, false)); }}>
-            {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
-          </select>
-        </label>
-      </div>
+      <label className="field"><span>Nombre del rol</span><input className="input" autoFocus value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Por ejemplo: Nutricionista" /></label>
+      <p className="xs muted" style={{ margin: 0 }}>Todos los permisos arrancan en «Sin acceso». Elige los que necesite este rol.</p>
       <EditorPermisos valor={permisos} onCambio={setPermisos} />
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
     </Dialogo>
