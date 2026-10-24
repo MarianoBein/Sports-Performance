@@ -120,7 +120,6 @@ export default function Alta() {
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
       </Link>
       <h1 className="display" style={{ fontSize: 36 }}>Escribe tu código</h1>
-      <p className="muted small" style={{ margin: 0 }}>Te lo pasa tu preparador físico o el club.</p>
       {completando && (
         <p className="notice notice-warn" style={{ margin: 0 }}>
           Tu cuenta ya existe pero falta el código del club. <button type="button" className="btn-ghost" style={{ padding: 0, textDecoration: 'underline', color: 'inherit' }} onClick={salir}>Usar otra cuenta</button>

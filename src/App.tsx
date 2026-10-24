@@ -8,6 +8,8 @@ import Inicio from './pages/Inicio';
 import Proximamente from './pages/Proximamente';
 import Usuarios from './pages/Usuarios';
 import Plataforma from './pages/Plataforma';
+import Calendario from './pages/Calendario';
+import ExportarSemana from './pages/ExportarSemana';
 import type { ReactNode } from 'react';
 
 function Protegida({ children, modulo, soloDueno }: { children: ReactNode; modulo?: Modulo; soloDueno?: boolean }) {
@@ -26,7 +28,8 @@ export default function App() {
       <Route path="/entrar" element={<Entrar />} />
       <Route path="/alta" element={<Alta />} />
       <Route path="/" element={<Protegida><Inicio /></Protegida>} />
-      <Route path="/calendario" element={<Protegida modulo="calendario"><Proximamente titulo="Calendario" /></Protegida>} />
+      <Route path="/calendario" element={<Protegida modulo="calendario"><Calendario /></Protegida>} />
+      <Route path="/calendario/exportar" element={<Protegida modulo="calendario"><ExportarSemana /></Protegida>} />
       <Route path="/workout-builder" element={<Protegida modulo="workout_builder"><Proximamente titulo="Workout Builder" /></Protegida>} />
       <Route path="/sports-science" element={<Protegida modulo="sports_science"><Proximamente titulo="Sports Science Hub" /></Protegida>} />
       <Route path="/usuarios" element={<Protegida modulo="usuarios"><Usuarios /></Protegida>} />

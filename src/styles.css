@@ -103,3 +103,12 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .mobile-shell { min-height: 100dvh; max-width: 440px; margin: 0 auto; padding: 24px 24px 40px; display: flex; flex-direction: column; gap: 16px; }
 .back { width: 44px; height: 44px; margin-left: -10px; border: 0; background: transparent; display: flex; align-items: center; justify-content: center; }
 .logo-box { width: 96px; height: 96px; border-radius: 24px; background: var(--ink); color: #fff; display: flex; align-items: center; justify-content: center; font-family: var(--display); font-weight: 700; font-size: 34px; }
+
+/* ---------- Impresión (exportar semana) ---------- */
+@media print {
+  @page { size: A4 landscape; margin: 10mm; }
+  .topbar, .bottomnav, .no-print { display: none !important; }
+  html, body { background: #fff; }
+  .page { padding: 0; max-width: none; }
+  .hoja { padding: 0 !important; overflow: visible !important; }
+}

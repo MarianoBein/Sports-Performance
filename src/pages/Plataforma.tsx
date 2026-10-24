@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { supabase, mensajeError } from '../lib/supabase';
 
 type Org = {
@@ -10,7 +10,7 @@ type Org = {
 const TIPOS: Record<string, string> = { club: 'Club', entrenamiento_online: 'Entrenamiento online', otro: 'Otro' };
 const PLANES: Record<string, string> = { prueba: 'Prueba', regalo: 'Regalo', pago: 'Pago' };
 const ESTADOS: Record<string, string> = { activa: 'Activa', suspendida: 'Suspendida', baja: 'Baja' };
-const ESTILO_ESTADO: Record<string, React.CSSProperties> = {
+const ESTILO_ESTADO: Record<string, CSSProperties> = {
   activa: { background: 'var(--ok-bg)', color: 'var(--ok-fg)' },
   suspendida: { background: 'var(--warn-bg)', color: 'var(--warn-fg)' },
   baja: { background: '#F1EFEA', color: 'var(--muted)' },
