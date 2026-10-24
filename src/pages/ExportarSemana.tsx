@@ -88,9 +88,15 @@ export default function ExportarSemana() {
       <div className="hoja" style={{ background: '#fff', color: '#000', fontFamily: 'Arial, Helvetica, sans-serif', padding: '24px 28px', borderRadius: 8, overflowX: 'auto' }}>
         <div style={{ minWidth: 860, display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div className="row" style={{ justifyContent: 'space-between' }}>
-            <span style={{ fontWeight: 700, fontSize: 16 }}>{perfil.club.nombre}</span>
-            <p style={{ margin: 0, fontSize: 22, fontWeight: 700 }}>{perfil.club.temporada ? `${perfil.club.temporada} ` : ''}Semana del {dm(dias[0])} al {dm(dias[6])}</p>
-            <span style={{ width: 120 }} />
+            <span style={{ width: 160, display: 'flex', alignItems: 'center' }}>
+              {perfil.club.logo_club_url
+                ? <img src={perfil.club.logo_club_url} alt={`Escudo de ${perfil.club.nombre}`} style={{ height: 72, maxWidth: 160, objectFit: 'contain' }} />
+                : <span style={{ fontWeight: 700, fontSize: 16 }}>{perfil.club.nombre}</span>}
+            </span>
+            <p style={{ margin: 0, fontSize: 22, fontWeight: 700, textAlign: 'center' }}>{perfil.club.temporada ? `${perfil.club.temporada} ` : ''}Semana del {dm(dias[0])} al {dm(dias[6])}</p>
+            <span style={{ width: 160, display: 'flex', justifyContent: 'flex-end' }}>
+              {perfil.club.logo_liga_url && <img src={perfil.club.logo_liga_url} alt="Escudo de la liga" style={{ height: 60, maxWidth: 160, objectFit: 'contain' }} />}
+            </span>
           </div>
           <p style={{ margin: 0, textAlign: 'center', fontSize: 12 }}>LOS HORARIOS QUEDAN SUJETOS A MODIFICACIONES POR PARTE DEL ENTRENADOR</p>
           <div style={{ border: borde }}>

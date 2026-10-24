@@ -11,9 +11,9 @@ export type Actividad = {
 };
 
 export const TIPOS: Record<Tipo, { nombre: string; color: string; bg: string; fg: string }> = {
-  deportiva: { nombre: 'Deportiva', color: '#1D4ED8', bg: '#DCE7FF', fg: '#1E3A8A' },
-  logistica: { nombre: 'Logística', color: '#C2610C', bg: '#FFEBD6', fg: '#7A3A06' },
-  prensa: { nombre: 'Prensa', color: '#6D28D9', bg: '#EDE4FF', fg: '#4C1D95' },
+  deportiva: { nombre: 'Deportiva', color: '#D6192F', bg: '#FDE3E6', fg: '#8F0E1F' },
+  logistica: { nombre: 'Logística', color: '#1D5BD8', bg: '#DCE7FF', fg: '#1E3A8A' },
+  prensa: { nombre: 'Prensa', color: '#E5A800', bg: '#FFF2C2', fg: '#6B4E00' },
 };
 
 export const ETIQUETAS: { tipo: Destino['tipo']; nombre: string }[] = [

@@ -10,6 +10,7 @@ import Usuarios from './pages/Usuarios';
 import Plataforma from './pages/Plataforma';
 import Calendario from './pages/Calendario';
 import ExportarSemana from './pages/ExportarSemana';
+import Ajustes from './pages/Ajustes';
 import type { ReactNode } from 'react';
 
 function Protegida({ children, modulo, soloDueno }: { children: ReactNode; modulo?: Modulo; soloDueno?: boolean }) {
@@ -33,6 +34,7 @@ export default function App() {
       <Route path="/workout-builder" element={<Protegida modulo="workout_builder"><Proximamente titulo="Workout Builder" /></Protegida>} />
       <Route path="/sports-science" element={<Protegida modulo="sports_science"><Proximamente titulo="Sports Science Hub" /></Protegida>} />
       <Route path="/usuarios" element={<Protegida modulo="usuarios"><Usuarios /></Protegida>} />
+      <Route path="/ajustes" element={<Protegida modulo="usuarios"><Ajustes /></Protegida>} />
       <Route path="/plataforma" element={<Protegida soloDueno><Plataforma /></Protegida>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

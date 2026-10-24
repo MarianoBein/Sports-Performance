@@ -74,7 +74,7 @@ export default function Inicio() {
           {hoy.length === 0 && <div className="card muted small" style={{ padding: 14 }}>No hay actividades hoy.</div>}
           {hoy.map((a) => (
             <Link key={a.id} to="/calendario" className="card" style={{ padding: 14, textDecoration: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ fontSize: 13, fontWeight: 600, color: TIPOS[a.tipo].color }}>{a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio)} · {TIPOS[a.tipo].nombre}{a.lugar ? ` · ${a.lugar}` : ''}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: TIPOS[a.tipo].fg }}>{a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio)} · {TIPOS[a.tipo].nombre}{a.lugar ? ` · ${a.lugar}` : ''}</span>
               <span style={{ fontSize: 17, fontWeight: 600 }}>{titulo(a)}</span>
             </Link>
           ))}

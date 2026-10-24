@@ -128,7 +128,7 @@ export default function Calendario() {
       <button type="button" className="card" onClick={() => setDetalle(a)}
         style={{ width: '100%', border: 0, padding: 14, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 6, background: a.es_partido ? t.bg : '#fff' }}>
         <span className="row" style={{ justifyContent: 'space-between', width: '100%' }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: t.color }}>{a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio) + (a.hora_fin ? `–${hora(a.hora_fin)}` : '')} · {t.nombre}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: t.fg }}>{a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio) + (a.hora_fin ? `–${hora(a.hora_fin)}` : '')} · {t.nombre}</span>
           {a.lugar && <span className="xs muted">{a.lugar}</span>}
         </span>
         <span style={{ fontSize: 17, fontWeight: 600 }}>{titulo(a)}</span>
@@ -370,6 +370,11 @@ function Formulario({ inicial, fecha, personas, grupos, lugares, yo, onLugares, 
     if (error) setError(mensajeError(error)); else onLugares();
   }
 
+  async function borrarLugar(id: string) {
+    const { error } = await supabase.rpc('eliminar_lugar', { p_id: id });
+    if (error) setError(mensajeError(error)); else onLugares();
+  }
+
   async function guardar() {
     setError('');
     if (!nombre.trim()) { setError('Ponle un nombre a la actividad.'); return; }
@@ -441,8 +446,12 @@ function Formulario({ inicial, fecha, personas, grupos, lugares, yo, onLugares, 
         <div className="row" style={{ gap: 6 }}>
           {lugares.length > 0 && <span className="xs muted">Guardados:</span>}
           {lugares.map((l) => (
-            <button key={l.id} type="button" className="chip" aria-pressed={lugar === l.nombre} style={{ height: 32 }}
-              onClick={() => { setLugar(l.nombre); setDireccion(l.direccion ?? ''); }}>{l.nombre}</button>
+            <span key={l.id} style={{ display: 'inline-flex', alignItems: 'center', borderRadius: 16, border: '1.5px solid var(--field)', background: lugar === l.nombre ? 'var(--ink)' : '#fff', color: lugar === l.nombre ? '#fff' : 'var(--ink)' }}>
+              <button type="button" aria-pressed={lugar === l.nombre} onClick={() => { setLugar(l.nombre); setDireccion(l.direccion ?? ''); }}
+                style={{ height: 30, padding: '0 4px 0 12px', border: 0, background: 'transparent', color: 'inherit', fontSize: 13, fontWeight: 600 }}>{l.nombre}</button>
+              <button type="button" aria-label={`Borrar el lugar guardado ${l.nombre}`} onClick={() => borrarLugar(l.id)}
+                style={{ width: 28, height: 30, border: 0, background: 'transparent', color: 'inherit', fontSize: 15, opacity: 0.6 }}>×</button>
+            </span>
           ))}
           {lugar.trim() && !guardado && <button type="button" className="chip" style={{ height: 32, borderStyle: 'dashed', fontWeight: 600 }} onClick={guardarLugar}>+ Guardar este lugar</button>}
         </div>
@@ -481,7 +490,7 @@ function Formulario({ inicial, fecha, personas, grupos, lugares, yo, onLugares, 
         </div>
       </div>
       {tipo === 'prensa' && (
-        <p className="notice" style={{ margin: 0, background: '#EDE4FF', color: '#3B1A7A' }}>
+        <p className="notice" style={{ margin: 0, background: TIPOS.prensa.bg, color: TIPOS.prensa.fg }}>
           Cada persona etiquetada recibe «Aceptar» o «No puedo». Queda pendiente hasta que confirme y, si alguien no puede, lo vas a ver en la actividad.
         </p>
       )}

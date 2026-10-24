@@ -14,6 +14,7 @@ const ENLACES: { to: string; nombre: string; corto: string; modulo?: Modulo; ico
 export default function Layout({ children }: { children: ReactNode }) {
   const { perfil, permisos, esDueno, salir } = useSesion();
   const visibles = ENLACES.filter((e) => !e.modulo || (permisos && puede(permisos, e.modulo)));
+  if (perfil?.es_admin) visibles.push({ to: '/ajustes', nombre: 'Ajustes', corto: 'Ajustes', icono: <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" /></> });
   if (esDueno) visibles.push({ to: '/plataforma', nombre: 'Plataforma', corto: 'Plataforma', icono: <><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /></> });
   return (
     <>
