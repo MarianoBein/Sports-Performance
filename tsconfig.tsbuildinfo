@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/components/Layout.tsx","./src/lib/permisos.ts","./src/lib/sesion.tsx","./src/lib/supabase.ts","./src/pages/Alta.tsx","./src/pages/Entrar.tsx","./src/pages/Inicio.tsx","./src/pages/Proximamente.tsx","./src/pages/Usuarios.tsx"],"version":"5.9.3"}

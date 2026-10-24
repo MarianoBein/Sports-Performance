@@ -1,0 +1,78 @@
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { supabase } from './supabase';
+import { permisosEfectivos, type Permisos } from './permisos';
+
+export type Rol = { id: string; clave: string; nombre: string; es_jugador: boolean; permisos: Permisos };
+export type Club = { id: string; nombre: string; sede_local: string | null; temporada: string | null };
+export type Perfil = {
+  id: string; club_id: string; nombre: string; email: string; rol_id: string;
+  es_admin: boolean; permisos_ajustados: Partial<Permisos> | null; eliminado_en: string | null;
+  rol: Rol; club: Club;
+};
+
+type Ctx = {
+  cargando: boolean;
+  sesion: Session | null;
+  perfil: Perfil | null;
+  permisos: Permisos | null;
+  recargar: () => Promise<void>;
+  salir: () => Promise<void>;
+};
+
+const SesionCtx = createContext<Ctx | null>(null);
+
+export function SesionProvider({ children }: { children: ReactNode }) {
+  const [sesion, setSesion] = useState<Session | null>(null);
+  const [perfil, setPerfil] = useState<Perfil | null>(null);
+  const [cargando, setCargando] = useState(true);
+
+  const cargarPerfil = useCallback(async (s: Session | null) => {
+    if (!s) { setPerfil(null); return; }
+    const { data } = await supabase
+      .from('perfiles')
+      .select('*, rol:roles(*), club:clubs(*)')
+      .eq('id', s.user.id)
+      .is('eliminado_en', null)
+      .maybeSingle();
+    setPerfil((data as Perfil) ?? null);
+  }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data }) => {
+      setSesion(data.session);
+      await cargarPerfil(data.session);
+      setCargando(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      setSesion(s);
+      setTimeout(() => { cargarPerfil(s); }, 0);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, [cargarPerfil]);
+
+  const recargar = useCallback(async () => {
+    const { data } = await supabase.auth.getSession();
+    setSesion(data.session);
+    await cargarPerfil(data.session);
+  }, [cargarPerfil]);
+
+  const salir = useCallback(async () => {
+    await supabase.auth.signOut();
+    setPerfil(null);
+  }, []);
+
+  const permisos = perfil ? permisosEfectivos(perfil.rol.permisos, perfil.permisos_ajustados, perfil.es_admin) : null;
+
+  return (
+    <SesionCtx.Provider value={{ cargando, sesion, perfil, permisos, recargar, salir }}>
+      {children}
+    </SesionCtx.Provider>
+  );
+}
+
+export function useSesion() {
+  const c = useContext(SesionCtx);
+  if (!c) throw new Error('useSesion fuera del proveedor');
+  return c;
+}
