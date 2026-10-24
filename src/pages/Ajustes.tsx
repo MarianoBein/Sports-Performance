@@ -36,7 +36,8 @@ export default function Ajustes() {
   const [logoLiga, setLogoLiga] = useState<string | null>(perfil?.club.logo_liga_url ?? null);
   const [subiendo, setSubiendo] = useState<'club' | 'liga' | null>(null);
   const [wModo, setWModo] = useState(perfil?.club.wellness_modo ?? 'todos');
-  const [rModo, setRModo] = useState(perfil?.club.rpe_modo ?? 'con_actividad');
+  const [rModo, setRModo] = useState(perfil?.club.rpe_modo ?? 'todos');
+  const [retraso, setRetraso] = useState(perfil?.club.rpe_retraso_min ?? 30);
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
 
   if (!perfil) return null;
@@ -111,10 +112,17 @@ export default function Ajustes() {
               </select>
             </label>
           ))}
+          <label className="field"><span>El RPE aparece</span>
+            <select className="select" value={retraso} onChange={(e) => setRetraso(Number(e.target.value))}>
+              {Array.from({ length: 25 }, (_, i) => i * 5).map((m) => (
+                <option key={m} value={m}>{m === 0 ? 'Al terminar la última actividad' : `${m} min después de la última actividad`}</option>
+              ))}
+            </select>
+          </label>
         </div>
-        <p className="xs muted" style={{ margin: 0 }}>«Días con actividad»: cuando el jugador tiene una actividad deportiva ese día. El RPE aparece 30 minutos después de la última.</p>
+        <p className="xs muted" style={{ margin: 0 }}>«Días con actividad»: cuando el jugador tiene una actividad deportiva ese día. Un día concreto (por ejemplo, el de partido) se puede marcar como «no aplica» desde el Sports Science Hub.</p>
         <button type="button" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={async () => {
-          const { error } = await supabase.rpc('actualizar_recurrencia', { p_wellness: wModo, p_rpe: rModo });
+          const { error } = await supabase.rpc('actualizar_recurrencia', { p_wellness: wModo, p_rpe: rModo, p_retraso: retraso });
           if (error) setAviso({ ok: false, texto: mensajeError(error) }); else { await recargar(); setAviso({ ok: true, texto: 'Guardado.' }); }
         }}>Guardar</button>
       </section>

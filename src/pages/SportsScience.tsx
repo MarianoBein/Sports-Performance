@@ -7,7 +7,10 @@ import { COLORES_5, TEXTO_5, bienDe, colorRpe, type Pregunta } from '../lib/well
 type Fila = {
   perfil_id: string; nombre: string; sueno: number | null; fatiga: number | null; estres: number | null; dolor: number | null;
   preparacion: number | null; rpe: number | null; minutos: number | null; minutos_propios: boolean; srpe: number | null;
+  wellness_aplica: boolean; rpe_aplica: boolean; wellness_excepcion: boolean; rpe_excepcion: boolean;
 };
+type Cuest = 'wellness' | 'rpe';
+const NA = () => <span className="pill" style={{ background: '#F1EFEA', color: 'var(--muted)', fontSize: 11 }}>No aplica</span>;
 const fmt = (n: number | null, d = 1) => (n === null || n === undefined ? '—' : Number(n).toLocaleString('es-ES', { minimumFractionDigits: d, maximumFractionDigits: d }));
 
 function Celda({ clave, valor }: { clave: Pregunta['clave']; valor: number | null }) {
@@ -40,13 +43,18 @@ function VistaStaff({ edita }: { edita: boolean }) {
   const [fecha, setFecha] = useState(hoyIso());
   const [filas, setFilas] = useState<Fila[]>([]);
   const [minEquipo, setMinEquipo] = useState<number | null>(null);
+  const [equipo, setEquipo] = useState<Record<Cuest, boolean | null>>({ wellness: null, rpe: null });
   const [error, setError] = useState('');
 
   const cargar = useCallback(async () => {
-    const [r, m] = await Promise.all([
+    const [r, m, ex] = await Promise.all([
       supabase.rpc('respuestas_dia', { p_fecha: fecha }),
       supabase.from('minutos_equipo').select('minutos').eq('fecha', fecha).maybeSingle(),
+      supabase.from('cuestionario_excepciones').select('cuestionario,aplica').eq('fecha', fecha).is('perfil_id', null),
     ]);
+    const eq: Record<Cuest, boolean | null> = { wellness: null, rpe: null };
+    (ex.data ?? []).forEach((x: { cuestionario: Cuest; aplica: boolean }) => { eq[x.cuestionario] = x.aplica; });
+    setEquipo(eq);
     if (r.error) setError(mensajeError(r.error)); else setError('');
     setFilas((r.data as Fila[]) ?? []);
     setMinEquipo(m.data?.minutos ?? null);
@@ -58,6 +66,12 @@ function VistaStaff({ edita }: { edita: boolean }) {
     if (error) setError(mensajeError(error)); else cargar();
   }
 
+  async function marcar(c: Cuest, aplica: boolean | null, perfil?: string) {
+    const { error } = await supabase.rpc('marcar_aplica', { p_fecha: fecha, p_cuestionario: c, p_aplica: aplica, p_perfil: perfil ?? null });
+    if (error) setError(mensajeError(error)); else cargar();
+  }
+  const aplicaW = filas.filter((f) => f.wellness_aplica);
+  const aplicaR = filas.filter((f) => f.rpe_aplica);
   const conW = filas.filter((f) => f.preparacion !== null);
   const conR = filas.filter((f) => f.rpe !== null);
   const media = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -82,8 +96,8 @@ function VistaStaff({ edita }: { edita: boolean }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
         {[
-          ['Preparación', fmt(media(conW.map((f) => Number(f.preparacion))), 2), `${conW.length} de ${filas.length} respondieron`],
-          ['RPE medio', fmt(media(conR.map((f) => Number(f.rpe))), 1), `${conR.length} de ${filas.length} respondieron`],
+          ['Preparación', fmt(media(conW.map((f) => Number(f.preparacion))), 2), `${conW.length} de ${aplicaW.length} respondieron`],
+          ['RPE medio', fmt(media(conR.map((f) => Number(f.rpe))), 1), `${conR.length} de ${aplicaR.length} respondieron`],
           ['Esfuerzo medio', fmt(media(filas.filter((f) => f.srpe !== null).map((f) => Number(f.srpe))), 0), 'RPE × minutos'],
         ].map(([t, v, s]) => (
           <div key={t} className="card" style={{ padding: 14, textAlign: 'center' }}>
@@ -94,6 +108,22 @@ function VistaStaff({ edita }: { edita: boolean }) {
         ))}
       </div>
 
+      <div className="card row" style={{ padding: '12px 16px', gap: '10px 20px' }}>
+        <strong style={{ fontSize: 14 }}>Este día, para el equipo</strong>
+        {(['wellness', 'rpe'] as Cuest[]).map((c) => (
+          <label key={c} className="row" style={{ gap: 8 }}>
+            <span className="small" style={{ fontWeight: 600 }}>{c === 'wellness' ? 'Wellness' : 'RPE'}</span>
+            <select className="select" style={{ height: 36, width: 'auto', fontSize: 14 }} disabled={!edita}
+              value={equipo[c] === null ? 'auto' : equipo[c] ? 'si' : 'no'}
+              onChange={(e) => marcar(c, e.target.value === 'auto' ? null : e.target.value === 'si')}>
+              <option value="auto">Según la frecuencia del club</option>
+              <option value="si">Aplica</option>
+              <option value="no">No aplica (p. ej. partido)</option>
+            </select>
+          </label>
+        ))}
+      </div>
+
       <div className="card row" style={{ padding: '12px 16px' }}>
         <strong style={{ fontSize: 14 }}>Minutos de entrenamiento del equipo</strong>
         {edita ? <MinutosInput valor={minEquipo} etiqueta="Minutos del equipo" onGuardar={(m) => guardarMin(m)} /> : <span>{minEquipo ?? '—'}</span>}
@@ -101,7 +131,7 @@ function VistaStaff({ edita }: { edita: boolean }) {
       </div>
 
       <div className="card table-wrap">
-        <table className="tbl" style={{ minWidth: 860 }}>
+        <table className="tbl" style={{ minWidth: 1080 }}>
           <thead>
             <tr>
               <th scope="col">Jugador</th>
@@ -113,33 +143,60 @@ function VistaStaff({ edita }: { edita: boolean }) {
               <th scope="col">RPE</th>
               <th scope="col">Minutos</th>
               <th scope="col">Esfuerzo</th>
+              {edita && <th scope="col">Excepción del jugador</th>}
             </tr>
           </thead>
           <tbody>
             {filas.map((f) => (
               <tr key={f.perfil_id}>
                 <th scope="row" style={{ fontWeight: 600 }}>{f.nombre}</th>
-                <td><Celda clave="sueno" valor={f.sueno} /></td>
-                <td><Celda clave="fatiga" valor={f.fatiga} /></td>
-                <td><Celda clave="estres" valor={f.estres} /></td>
-                <td><Celda clave="dolor" valor={f.dolor} /></td>
+                {!f.wellness_aplica && f.sueno === null
+                  ? <td colSpan={4}><NA /></td>
+                  : <>
+                    <td><Celda clave="sueno" valor={f.sueno} /></td>
+                    <td><Celda clave="fatiga" valor={f.fatiga} /></td>
+                    <td><Celda clave="estres" valor={f.estres} /></td>
+                    <td><Celda clave="dolor" valor={f.dolor} /></td>
+                  </>}
                 <td style={{ fontWeight: 600 }}>{fmt(f.preparacion === null ? null : Number(f.preparacion), 2)}</td>
-                <td>{f.rpe === null ? <span className="muted">—</span> : <span className="pill" style={{ minWidth: 32, textAlign: 'center', background: colorRpe(f.rpe).color, color: colorRpe(f.rpe).texto }}>{f.rpe}</span>}</td>
+                <td>{f.rpe === null ? (f.rpe_aplica ? <span className="muted">—</span> : <NA />) : <span className="pill" style={{ minWidth: 32, textAlign: 'center', background: colorRpe(f.rpe).color, color: colorRpe(f.rpe).texto }}>{f.rpe}</span>}</td>
                 <td>{edita
                   ? <MinutosInput valor={f.minutos_propios ? f.minutos : null} etiqueta={`Minutos de ${f.nombre}`} onGuardar={(m) => guardarMin(m, f.perfil_id)} />
                   : (f.minutos ?? '—')}
                   {edita && !f.minutos_propios && f.minutos !== null && <span className="xs muted"> ({f.minutos})</span>}
                 </td>
                 <td style={{ fontWeight: 600 }}>{f.srpe ?? <span className="muted">—</span>}</td>
+                {edita && (
+                  <td>
+                    <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                      {(['wellness', 'rpe'] as Cuest[]).map((c) => {
+                        const exc = c === 'wellness' ? f.wellness_excepcion : f.rpe_excepcion;
+                        const ap = c === 'wellness' ? f.wellness_aplica : f.rpe_aplica;
+                        return (
+                          <label key={c}>
+                            <span className="sr-only">{`${c === 'wellness' ? 'Wellness' : 'RPE'} de ${f.nombre}`}</span>
+                            <select className="select" style={{ height: 32, width: 'auto', fontSize: 12, padding: '0 6px', borderColor: exc ? 'var(--ink)' : undefined }}
+                              value={!exc ? 'auto' : ap ? 'si' : 'no'}
+                              onChange={(e) => marcar(c, e.target.value === 'auto' ? null : e.target.value === 'si', f.perfil_id)}>
+                              <option value="auto">{c === 'wellness' ? 'W' : 'RPE'}: como el equipo</option>
+                              <option value="si">{c === 'wellness' ? 'W' : 'RPE'}: aplica</option>
+                              <option value="no">{c === 'wellness' ? 'W' : 'RPE'}: no aplica</option>
+                            </select>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </td>
+                )}
               </tr>
             ))}
-            {filas.length === 0 && !error && <tr><td colSpan={9} className="muted">Todavía no hay jugadores en el club.</td></tr>}
+            {filas.length === 0 && !error && <tr><td colSpan={10} className="muted">Todavía no hay jugadores en el club.</td></tr>}
           </tbody>
         </table>
       </div>
       <p className="xs muted" style={{ margin: 0 }}>
         Sueño: 5 = dormí muy bien. Fatiga, estrés y dolor muscular: 5 = muy mal. El color siempre indica si está bien (verde) o mal (rojo).
-        Preparación = promedio de las cuatro con el mismo sentido (5 = mejor). «—» = sin respuesta; nunca cuenta como cero.
+        Preparación = promedio de las cuatro con el mismo sentido (5 = mejor). «—» = sin respuesta; nunca cuenta como cero. «No aplica» no cuenta como faltante.
       </p>
     </div>
   );
