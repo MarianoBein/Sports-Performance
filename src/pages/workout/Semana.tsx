@@ -328,12 +328,6 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
             <button type="button" className="chip" aria-pressed={compacto} onClick={() => !compacto && moverPeriodo(primeroDeMes(sumarDias(ancla, 3)), 'mes')}>Mes</button>
           </div>
           <span className="spacer" />
-          <div className="row" style={{ gap: 4 }}>
-            <button type="button" className="btn btn-sm" disabled={!sel.length} onClick={copiar} title="⌘C / Ctrl+C">Copiar{sel.length > 1 ? ` (${sel.length})` : ''}</button>
-            <button type="button" className="btn btn-sm" disabled={!clip.length || esPartido(diaActivo) || !dias.includes(diaActivo)} onClick={() => pegar()} title="⌘V / Ctrl+V">Pegar en {etiquetaDia(dias.includes(diaActivo) ? diaActivo : dias[0])}</button>
-            <button type="button" className="btn btn-sm" disabled={!pasado.length} onClick={deshacer} title="⌘Z / Ctrl+Z">Deshacer</button>
-            <button type="button" className="btn btn-sm link-danger" disabled={!sel.length} onClick={borrar} title="Supr">Borrar</button>
-          </div>
           <span className="xs" role="status" style={{ minWidth: 90, textAlign: 'right', color: estado === 'error' ? '#8F1D1D' : 'var(--muted)' }}>
             {estado === 'guardando' ? 'Guardando…' : estado === 'error' ? 'Sin guardar' : 'Guardado'}
           </span>
