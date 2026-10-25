@@ -4,48 +4,56 @@ import { useSesion } from '../../lib/sesion';
 import { DIAS_CORTOS, MESES, cargarActividades, hora, iso, lunesDe, sumarDias, hoyIso, desdeIso } from '../../lib/calendario';
 import {
   BREAKS_SUGERIDOS, claveDestinos, esquema, etiquetaMD, itemDesdeDb, nuevoId, tiempoTexto,
-  type Destino, type Ejercicio, type Item, type Sesion,
+  type Destino, type Ejercicio, type Item,
 } from '../../lib/workout';
+import {
+  aplicarConflictos, destinosDe, efectivo, llave, marcarModificados, materializar, propagar,
+  type Conflicto, type Ctx, type Mapa,
+} from '../../lib/planes';
 import EditorItem from './EditorItem';
 import Dialogo from '../../components/Dialogo';
 
-type Plan = Record<string, Item[]>;
 type Jugador = { id: string; nombre: string };
 type Grupo = { id: string; nombre: string };
 type Partido = { fecha: string; hora: string | null; rival: string | null; fuera: boolean };
 type Edicion = { fecha: string; item: Item | null; tipo: 'ejercicio' | 'break' };
+type Vista = 'semana' | 'mes';
 
-const EQUIPO: Destino = { tipo: 'equipo' };
 const accent = 'var(--accent)';
+const primeroDeMes = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
 
 export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca: Ejercicio[]; onBibliotecaCambio: (e: Ejercicio) => void }) {
   const { perfil } = useSesion();
-  const [lunes, setLunes] = useState(() => lunesDe(new Date()));
-  const dias = useMemo(() => Array.from({ length: 7 }, (_, i) => iso(sumarDias(lunes, i))), [lunes]);
-  const [destinos, setDestinos] = useState<Destino[]>([EQUIPO]);
-  const [verJugador, setVerJugador] = useState<string>('');
+  const [vista, setVista] = useState<Vista>('semana');
+  const [ancla, setAncla] = useState(() => lunesDe(new Date())); // lunes (semana) o día 1 (mes)
+  const dias = useMemo(() => {
+    const desde = vista === 'semana' ? ancla : lunesDe(ancla);
+    const finMes = new Date(ancla.getFullYear(), ancla.getMonth() + 1, 0);
+    const n = vista === 'semana' ? 7 : Math.round((sumarDias(lunesDe(finMes), 7).getTime() - desde.getTime()) / 86400000);
+    return Array.from({ length: n }, (_, i) => iso(sumarDias(desde, i)));
+  }, [vista, ancla]);
+
+  const [clave, setClave] = useState('equipo');
   const [jugadores, setJugadores] = useState<Jugador[]>([]);
   const [grupos, setGrupos] = useState<Grupo[]>([]);
   const [miembros, setMiembros] = useState<{ grupo_id: string; perfil_id: string }[]>([]);
-  const [sesiones, setSesiones] = useState<Sesion[] | null>(null);
+  const [mapa, setMapa] = useState<Mapa | null>(null);
   const [partidos, setPartidos] = useState<Partido[]>([]);
   const [conActividad, setConActividad] = useState<Set<string>>(new Set());
-  const [plan, setPlan] = useState<Plan>({});
-  const [pasado, setPasado] = useState<Plan[]>([]);
+  const [pasado, setPasado] = useState<Mapa[]>([]);
   const [sel, setSel] = useState<string[]>([]);
   const [clip, setClip] = useState<Item[]>([]);
   const [diaActivo, setDiaActivo] = useState<string>(hoyIso());
   const [edicion, setEdicion] = useState<Edicion | null>(null);
   const [arrastre, setArrastre] = useState<string[]>([]);
   const [soltarEn, setSoltarEn] = useState<string | null>(null);
+  const [conflictos, setConflictos] = useState<Conflicto[] | null>(null);
   const [estado, setEstado] = useState<'ok' | 'guardando' | 'error'>('ok');
   const [error, setError] = useState('');
-  const pendientes = useRef<Map<string, { destinos: Destino[]; items: Item[] }>>(new Map());
+  const pendientes = useRef<Map<string, Item[] | null>>(new Map());
   const temporizador = useRef<number | null>(null);
 
-  const clave = claveDestinos(destinos);
-
-  // ---------- Carga ----------
+  // ---------- Grupos y jugadores ----------
   useEffect(() => {
     (async () => {
       const [p, g, m] = await Promise.all([
@@ -59,51 +67,48 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     })();
   }, []);
 
-  const cargarSemana = useCallback(async () => {
-    setSesiones(null);
-    const desde = dias[0]; const hasta = dias[6];
+  const ctx: Ctx = useMemo(() => ({
+    gruposDe: (j: string) => grupos.filter((g) => miembros.some((m) => m.grupo_id === g.id && m.perfil_id === j)).map((g) => g.id),
+  }), [grupos, miembros]);
+
+  // ---------- Carga del período ----------
+  const cargar = useCallback(async () => {
+    setMapa(null);
+    const desde = dias[0]; const hasta = dias[dias.length - 1];
     const [s, acts] = await Promise.all([
       supabase.from('sesiones')
-        .select('id,fecha,destinos,sesion_items(id,orden,tipo,bloque,ejercicio_id,nombre,series,reps,cada_lado,con_carga,detalle,descanso_seg,nota,eliminado_en)')
+        .select('id,fecha,destinos,sesion_items(id,orden,tipo,bloque,ejercicio_id,nombre,series,reps,cada_lado,con_carga,detalle,descanso_seg,nota,origen_id,modificado,eliminado_en)')
         .gte('fecha', desde).lte('fecha', hasta),
-      cargarActividades(iso(sumarDias(lunes, -7)), iso(sumarDias(lunes, 13))).catch(() => []),
+      cargarActividades(iso(sumarDias(desdeIso(desde), -7)), iso(sumarDias(desdeIso(hasta), 7))).catch(() => []),
     ]);
-    if (s.error) { setError(mensajeError(s.error)); setSesiones([]); return; }
-    const lista: Sesion[] = (s.data ?? []).map((r: Record<string, unknown>) => ({
-      id: r.id as string, fecha: r.fecha as string, destinos: r.destinos as Destino[],
-      items: ((r.sesion_items as Record<string, unknown>[]) ?? [])
-        .filter((i) => !i.eliminado_en).sort((a, b) => Number(a.orden) - Number(b.orden)).map(itemDesdeDb),
-    }));
-    setSesiones(lista);
+    if (s.error) { setError(mensajeError(s.error)); setMapa({}); return; }
+    const m: Mapa = {};
+    for (const r of (s.data ?? []) as Record<string, unknown>[]) {
+      const ds = r.destinos as Destino[];
+      if (!Array.isArray(ds) || ds.length !== 1) continue; // planes combinados de la versión anterior: no se usan
+      m[llave(claveDestinos(ds), r.fecha as string)] = ((r.sesion_items as Record<string, unknown>[]) ?? [])
+        .filter((i) => !i.eliminado_en).sort((a, b) => Number(a.orden) - Number(b.orden)).map(itemDesdeDb);
+    }
+    setMapa(m); setPasado([]); setSel([]);
     setPartidos(acts.filter((a) => a.es_partido).map((a) => ({ fecha: a.fecha, hora: a.hora_inicio, rival: a.rival, fuera: a.fuera })));
     setConActividad(new Set(acts.filter((a) => a.tipo === 'deportiva').map((a) => a.fecha)));
-  }, [dias, lunes]);
-  useEffect(() => { cargarSemana(); }, [cargarSemana]);
+  }, [dias]);
+  useEffect(() => { cargar(); }, [cargar]);
 
-  // El plan editable = las sesiones de esta semana con exactamente estos destinatarios.
-  useEffect(() => {
-    if (!sesiones) return;
-    const p: Plan = {};
-    for (const d of dias) p[d] = [];
-    for (const s of sesiones) if (claveDestinos(s.destinos) === clave && p[s.fecha]) p[s.fecha] = s.items;
-    setPlan(p); setPasado([]); setSel([]);
-  }, [sesiones, clave, dias]);
-
-  // ---------- Guardado (automático, por día) ----------
+  // ---------- Guardado automático ----------
   const guardarPendientes = useCallback(async () => {
     if (temporizador.current) { window.clearTimeout(temporizador.current); temporizador.current = null; }
     const lote = [...pendientes.current.entries()];
     pendientes.current.clear();
     if (!lote.length) return;
     setEstado('guardando');
-    for (const [k, v] of lote) {
-      const fecha = k.split('|')[0];
-      const { error } = await supabase.rpc('guardar_dia', {
-        p_fecha: fecha, p_destinos: v.destinos,
-        p_items: v.items.map((it) => ({ ...it, reps: it.reps || null, nota: it.nota || null })),
-      });
-      if (error) { setEstado('error'); setError(`No se pudo guardar el ${fecha}: ${mensajeError(error)}`); return; }
-    }
+    const cambios = lote.map(([k, items]) => {
+      const [c, fecha] = k.split('|');
+      return items ? { fecha, destinos: destinosDe(c), items: items.map((it) => ({ ...it, reps: it.reps || null, nota: it.nota || null })) }
+        : { fecha, destinos: destinosDe(c), borrar: true };
+    });
+    const { error } = await supabase.rpc('guardar_dias', { p_cambios: cambios });
+    if (error) { setEstado('error'); setError(`No se pudieron guardar los cambios: ${mensajeError(error)}`); return; }
     setEstado('ok');
   }, []);
 
@@ -113,73 +118,114 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     return () => { window.removeEventListener('beforeunload', salir); void guardarPendientes(); };
   }, [guardarPendientes]);
 
-  function aplicar(nuevo: Plan, extra?: () => void) {
-    const viejo = plan;
-    for (const d of Object.keys(nuevo)) {
-      if (nuevo[d] !== viejo[d]) pendientes.current.set(`${d}|${clave}`, { destinos, items: nuevo[d] });
+  function programarGuardado(antes: Mapa, despues: Mapa) {
+    for (const k of new Set([...Object.keys(antes), ...Object.keys(despues)])) {
+      if (antes[k] !== despues[k]) pendientes.current.set(k, despues[k] ?? null);
     }
-    setPasado((h) => [...h, viejo].slice(-40));
-    setPlan(nuevo);
-    extra?.();
     setEstado('guardando');
     if (temporizador.current) window.clearTimeout(temporizador.current);
     temporizador.current = window.setTimeout(() => { void guardarPendientes(); }, 700);
   }
 
-  // Lo cargado + lo que se está editando ahora (para «Otros planes» y «Ver plan de»).
-  const sesionesVista = useMemo(() => {
-    if (!sesiones) return null;
-    const otras = sesiones.filter((s) => claveDestinos(s.destinos) !== clave);
-    const propias = Object.entries(plan).filter(([, its]) => its.length).map(([f, its]) => ({ id: `local-${f}`, fecha: f, destinos, items: its }));
-    return [...otras, ...propias];
-  }, [sesiones, plan, clave, destinos]);
-
-  async function cambiarDestinos(d: Destino[]) {
-    await guardarPendientes();
-    if (sesionesVista) setSesiones(sesionesVista);
-    setDestinos(d); setVerJugador('');
-  }
-  async function cambiarSemana(nuevoLunes: Date) {
-    await guardarPendientes();
-    setLunes(nuevoLunes);
+  function aplicarMapa(nuevo: Mapa) {
+    if (!mapa) return;
+    setPasado((h) => [...h, mapa].slice(-40));
+    programarGuardado(mapa, nuevo);
+    setMapa(nuevo);
   }
 
-  // ---------- Acciones del constructor ----------
-  const buscar = (ids: string[]) => dias.flatMap((d) => plan[d] ?? []).filter((it) => ids.includes(it.id));
-  const sinIds = (p: Plan, ids: string[]) => Object.fromEntries(Object.entries(p).map(([d, its]) => [d, its.some((i) => ids.includes(i.id)) ? its.filter((i) => !ids.includes(i.id)) : its]));
+  // Toda edición del plan elegido pasa por acá: convierte el día en propio si era heredado,
+  // marca lo modificado y baja los cambios a los niveles inferiores.
+  function editar(op: (get: (f: string) => Item[], set: (f: string, its: Item[]) => void) => void) {
+    if (!mapa) return;
+    const m: Mapa = { ...mapa };
+    const viejos: Record<string, Item[]> = {};
+    const get = (f: string) => { const its = materializar(clave, f, m, ctx); if (!(f in viejos)) viejos[f] = its; return its; };
+    const set = (f: string, its: Item[]) => { get(f); m[llave(clave, f)] = its; };
+    op(get, set);
+    const choques: Conflicto[] = [];
+    for (const f of Object.keys(viejos)) {
+      const nuevo = marcarModificados(clave, viejos[f], m[llave(clave, f)]);
+      m[llave(clave, f)] = nuevo;
+      propagar(clave, f, viejos[f], nuevo, m, ctx, choques);
+    }
+    aplicarMapa(m);
+    if (choques.length) setConflictos(choques);
+  }
+
+  // En un día heredado, lo que se ve son los ejercicios de arriba; sus copias recuerdan de cuál salieron.
+  const coincide = (it: Item, ids: string[]) => ids.includes(it.id) || (!!it.origen_id && ids.includes(it.origen_id));
+
+  async function cambiarPlan(c: string) {
+    await guardarPendientes();
+    setClave(c); setSel([]); setPasado([]);
+  }
+  async function moverPeriodo(nuevo: Date, v: Vista = vista) {
+    await guardarPendientes();
+    setVista(v); setAncla(nuevo);
+  }
+
+  // ---------- Vista efectiva del plan elegido ----------
+  const efectivoDe = (f: string) => (mapa ? efectivo(clave, f, mapa, ctx) : { items: [] as Item[], desde: clave, propio: true });
+  const visibles = (f: string) => efectivoDe(f).items;
   const esPartido = (d: string) => partidos.some((p) => p.fecha === d);
 
-  const copiar = () => { const its = buscar(sel); if (its.length) setClip(its); };
+  // ---------- Acciones ----------
+  const copiar = () => { const its = dias.flatMap(visibles).filter((it) => sel.includes(it.id)); if (its.length) setClip(its); };
   const pegar = (dia = diaActivo) => {
-    if (!clip.length || !plan[dia] || esPartido(dia)) return;
-    const frescos = clip.map((it) => ({ ...it, id: nuevoId(), detalle: it.detalle.map((s) => ({ ...s })) }));
-    aplicar({ ...plan, [dia]: [...plan[dia], ...frescos] }, () => { setSel(frescos.map((f) => f.id)); setDiaActivo(dia); });
+    if (!clip.length || !dias.includes(dia) || esPartido(dia)) return;
+    const frescos = clip.map((it) => ({ ...it, id: nuevoId(), origen_id: null, modificado: false, detalle: it.detalle.map((s) => ({ ...s })) }));
+    editar((get, set) => set(dia, [...get(dia), ...frescos]));
+    setSel(frescos.map((f) => f.id)); setDiaActivo(dia);
   };
   const deshacer = () => {
-    if (!pasado.length) return;
+    if (!pasado.length || !mapa) return;
     const previo = pasado[pasado.length - 1];
-    for (const d of Object.keys(previo)) if (previo[d] !== plan[d]) pendientes.current.set(`${d}|${clave}`, { destinos, items: previo[d] });
-    setPasado(pasado.slice(0, -1)); setPlan(previo); setSel([]);
-    setEstado('guardando');
-    if (temporizador.current) window.clearTimeout(temporizador.current);
-    temporizador.current = window.setTimeout(() => { void guardarPendientes(); }, 700);
+    programarGuardado(mapa, previo);
+    setPasado(pasado.slice(0, -1)); setMapa(previo); setSel([]);
   };
-  const borrar = () => { if (sel.length) aplicar(sinIds(plan, sel), () => setSel([])); };
+  const borrar = () => {
+    if (!sel.length) return;
+    const ds = dias.filter((d) => visibles(d).some((it) => sel.includes(it.id)));
+    editar((get, set) => { for (const d of ds) set(d, get(d).filter((it) => !coincide(it, sel))); });
+    setSel([]);
+  };
   const mover = (ids: string[], dia: string, antesDe?: string) => {
-    if (!ids.length || !plan[dia] || esPartido(dia)) return;
-    const its = buscar(ids);
-    const p = sinIds(plan, ids);
-    const destino = [...(p[dia] ?? [])];
-    let pos = antesDe ? destino.findIndex((i) => i.id === antesDe) : -1;
-    if (pos < 0) pos = destino.length;
-    destino.splice(pos, 0, ...its);
-    aplicar({ ...p, [dia]: destino }, () => { setSel(ids); setDiaActivo(dia); });
+    if (!ids.length || !dias.includes(dia) || esPartido(dia)) return;
+    const origenes = dias.filter((d) => visibles(d).some((it) => ids.includes(it.id)));
+    let movidos: string[] = [];
+    editar((get, set) => {
+      const its: Item[] = [];
+      for (const d of origenes) { const lista = get(d); its.push(...lista.filter((it) => coincide(it, ids))); set(d, lista.filter((it) => !coincide(it, ids))); }
+      const destino = [...get(dia)];
+      let pos = antesDe ? destino.findIndex((i) => coincide(i, [antesDe])) : -1;
+      if (pos < 0) pos = destino.length;
+      destino.splice(pos, 0, ...its);
+      set(dia, destino);
+      movidos = its.map((i) => i.id);
+    });
+    setSel(movidos); setDiaActivo(dia);
   };
+  const volverAHeredar = (f: string) => {
+    if (!mapa || clave === 'equipo') return;
+    const m = { ...mapa }; delete m[llave(clave, f)];
+    aplicarMapa(m);
+  };
+  function guardarEnDia(ed: Edicion, it: Item) {
+    editar((get, set) => {
+      const lista = get(ed.fecha);
+      if (ed.item) {
+        const prev = ed.item;
+        set(ed.fecha, lista.map((x) => (coincide(x, [prev.id]) ? { ...it, id: x.id, origen_id: x.origen_id, modificado: x.modificado } : x)));
+      } else set(ed.fecha, [...lista, it]);
+    });
+    setEdicion(null);
+  }
 
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => {
       const t = (e.target as HTMLElement | null)?.tagName ?? '';
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t) || edicion || verJugador) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t) || edicion || conflictos) return;
       const k = e.key.toLowerCase(); const mod = e.metaKey || e.ctrlKey;
       if (mod && k === 'c') { e.preventDefault(); copiar(); }
       else if (mod && k === 'v') { e.preventDefault(); pegar(); }
@@ -191,44 +237,30 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     return () => window.removeEventListener('keydown', tecla);
   });
 
-  // ---------- Etiquetas de destinatarios ----------
-  const nombreDestino = (d: Destino) =>
-    d.tipo === 'equipo' ? 'Todo el equipo'
-      : d.tipo === 'grupo' ? (grupos.find((g) => g.id === d.ref)?.nombre ?? 'Grupo')
-        : (jugadores.find((j) => j.id === d.ref)?.nombre ?? 'Jugador');
-  const tipoDestino = { equipo: 'Equipo', grupo: 'Grupo', persona: 'Jugador' } as const;
-  const estiloDestino = { equipo: { background: '#16181D', color: '#fff' }, grupo: { background: '#E0E7FF', color: '#1E3A8A' }, persona: { background: '#EFEDE8', color: '#16181D' } } as const;
-  const textoPlan = (ds: Destino[]) => ds.map(nombreDestino).join(' + ');
-
-  const planesSemana = useMemo(() => {
-    const m = new Map<string, Destino[]>();
-    for (const s of sesionesVista ?? []) if (s.items.length) m.set(claveDestinos(s.destinos), s.destinos);
-    m.delete(clave);
-    return [...m.values()];
-  }, [sesionesVista, clave]);
-
-  // ¿Le llega este plan al jugador?
-  const incluye = useCallback((ds: Destino[], j: string) => ds.some((d) =>
-    d.tipo === 'equipo' || (d.tipo === 'persona' && d.ref === j) || (d.tipo === 'grupo' && miembros.some((m) => m.grupo_id === d.ref && m.perfil_id === j))), [miembros]);
-
-  function guardarEnDia(ed: Edicion, it: Item) {
-    const lista = plan[ed.fecha] ?? [];
-    const nueva = ed.item ? lista.map((x) => (x.id === it.id ? it : x)) : [...lista, it];
-    aplicar({ ...plan, [ed.fecha]: nueva }, () => setSel([it.id]));
-    setEdicion(null);
-  }
+  // ---------- Nombres ----------
+  const nombrePlan = (c: string) => {
+    if (c === 'equipo') return 'Todo el equipo';
+    const [t, ref] = c.split(':');
+    return t === 'grupo' ? (grupos.find((g) => g.id === ref)?.nombre ?? 'Grupo') : (jugadores.find((j) => j.id === ref)?.nombre ?? 'Jugador');
+  };
+  const nombresBreak = useMemo(() => [...new Set([...BREAKS_SUGERIDOS, ...Object.values(mapa ?? {}).flat().filter((i) => i.tipo === 'break').map((i) => i.nombre)])], [mapa]);
 
   if (!perfil) return null;
   const hoy = hoyIso();
-  const fin = sumarDias(lunes, 6);
-  const tituloSemana = lunes.getMonth() === fin.getMonth()
-    ? `${lunes.getDate()} al ${fin.getDate()} de ${MESES[fin.getMonth()]}`
-    : `${lunes.getDate()} de ${MESES[lunes.getMonth()]} al ${fin.getDate()} de ${MESES[fin.getMonth()]}`;
   const partidosIso = partidos.map((p) => p.fecha);
   const etiquetaDia = (d: string) => `${DIAS_CORTOS[(desdeIso(d).getDay() + 6) % 7]} ${desdeIso(d).getDate()}`;
-  const muestra = (modo: string | undefined, d: string, tiene: boolean) => modo === 'todos' || (modo === 'con_actividad' && (tiene || conActividad.has(d)));
+  const compacto = vista === 'mes';
+  const muestra = (modo: string | undefined, d: string, tiene: boolean) => !compacto && (modo === 'todos' || (modo === 'con_actividad' && (tiene || conActividad.has(d))));
+  const ini = desdeIso(dias[0]);
+  const fin = desdeIso(dias[dias.length - 1]);
+  const titulo = compacto
+    ? `${MESES[ancla.getMonth()][0].toUpperCase()}${MESES[ancla.getMonth()].slice(1)} ${ancla.getFullYear()}`
+    : ini.getMonth() === fin.getMonth() ? `Semana del ${ini.getDate()} al ${fin.getDate()} de ${MESES[fin.getMonth()]}`
+      : `Semana del ${ini.getDate()} de ${MESES[ini.getMonth()]} al ${fin.getDate()} de ${MESES[fin.getMonth()]}`;
+  const anterior = () => moverPeriodo(compacto ? new Date(ancla.getFullYear(), ancla.getMonth() - 1, 1) : sumarDias(ancla, -7));
+  const siguiente = () => moverPeriodo(compacto ? new Date(ancla.getFullYear(), ancla.getMonth() + 1, 1) : sumarDias(ancla, 7));
+  const irHoy = () => moverPeriodo(compacto ? primeroDeMes(new Date()) : lunesDe(new Date()));
 
-  // Cada session break abre un tramo; los ejercicios de abajo le pertenecen hasta el siguiente.
   const tramosDe = (its: Item[]) => {
     const out: { brk: Item | null; items: Item[] }[] = [];
     for (const it of its) {
@@ -237,7 +269,6 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     }
     return out;
   };
-  const nombresBreak = [...new Set([...BREAKS_SUGERIDOS, ...Object.values(plan).flat().filter((i) => i.tipo === 'break').map((i) => i.nombre)])];
 
   const clicItem = (e: MouseEvent, it: Item, d: string) => {
     e.stopPropagation();
@@ -245,84 +276,64 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     setSel(multi ? (sel.includes(it.id) ? sel.filter((x) => x !== it.id) : [...sel, it.id]) : [it.id]);
     setDiaActivo(d);
   };
-  const empezarArrastre = (e: DragEvent, it: Item) => {
-    const ids = sel.includes(it.id) ? sel : [it.id];
-    try { e.dataTransfer.setData('text/plain', ids.join(',')); e.dataTransfer.effectAllowed = 'move'; } catch { /* nada */ }
-    setArrastre(ids); setSel(ids);
-  };
+  const props = (it: Item, d: string, partido: boolean) => ({
+    draggable: true,
+    'aria-pressed': sel.includes(it.id),
+    onClick: (e: MouseEvent) => clicItem(e, it, d),
+    onDoubleClick: (e: MouseEvent) => { e.stopPropagation(); setEdicion({ fecha: d, item: it, tipo: it.tipo }); },
+    onDragStart: (e: DragEvent) => {
+      const ids = sel.includes(it.id) ? sel : [it.id];
+      try { e.dataTransfer.setData('text/plain', ids.join(',')); e.dataTransfer.effectAllowed = 'move'; } catch { /* nada */ }
+      setArrastre(ids); setSel(ids);
+    },
+    onDragOver: (e: DragEvent) => { if (!partido) { e.preventDefault(); e.stopPropagation(); if (soltarEn !== d) setSoltarEn(d); } },
+    onDrop: (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); if (!arrastre.includes(it.id)) mover(arrastre, d, it.id); setArrastre([]); setSoltarEn(null); },
+  });
 
   return (
     <div className="stack" style={{ gap: 14 }}>
-      <p className="notice notice-warn wb-aviso-movil" style={{ margin: 0 }}>El armado de la semana se hace desde el ordenador. En el móvil vas a ver el entrenamiento de cada jugador.</p>
+      <p className="notice notice-warn wb-aviso-movil" style={{ margin: 0 }}>El armado de los planes se hace desde el ordenador. En el móvil vas a ver el entrenamiento de cada jugador.</p>
 
       <div className="wb-escritorio stack" style={{ gap: 14 }}>
-        {/* Para quién es el plan */}
-        <div className="card" style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div className="row" style={{ gap: 8 }}>
-            <strong style={{ fontSize: 14 }}>Asignar a</strong>
-            {destinos.map((d) => (
-              <span key={claveDestinos([d])} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, padding: '4px 4px 4px 10px', borderRadius: 16, fontSize: 13, fontWeight: 600, ...estiloDestino[d.tipo] }}>
-                {tipoDestino[d.tipo]} · {nombreDestino(d)}
-                <button type="button" aria-label={`Quitar ${nombreDestino(d)}`} disabled={destinos.length === 1}
-                  onClick={() => cambiarDestinos(destinos.filter((x) => claveDestinos([x]) !== claveDestinos([d])))}
-                  style={{ border: 0, background: 'transparent', color: 'inherit', width: 22, height: 22, borderRadius: 11, opacity: destinos.length === 1 ? 0.3 : 0.8 }}>×</button>
-              </span>
-            ))}
-            <label>
-              <span className="sr-only">Añadir jugador, grupo o equipo</span>
-              <select id="wb-anadir-destino" className="select" style={{ height: 34, width: 240, fontSize: 13 }} value=""
-                onChange={(e) => {
-                  const [t, ref] = e.target.value.split(':');
-                  if (!t) return;
-                  const d: Destino = t === 'equipo' ? EQUIPO : ({ tipo: t as 'grupo' | 'persona', ref });
-                  if (!destinos.some((x) => claveDestinos([x]) === claveDestinos([d]))) cambiarDestinos([...destinos, d]);
-                }}>
-                <option value="">+ Añadir jugador, grupo o equipo</option>
-                <option value="equipo">Todo el equipo</option>
-                {grupos.length > 0 && <optgroup label="Grupos">{grupos.map((g) => <option key={g.id} value={`grupo:${g.id}`}>{g.nombre}</option>)}</optgroup>}
-                {jugadores.length > 0 && <optgroup label="Jugadores">{jugadores.map((j) => <option key={j.id} value={`persona:${j.id}`}>{j.nombre}</option>)}</optgroup>}
-              </select>
-            </label>
-            <span className="spacer" />
-            <label className="row" style={{ gap: 6 }}>
-              <span className="small">Ver plan de</span>
-              <select id="wb-ver-jugador" className="select" style={{ height: 34, width: 200, fontSize: 13 }} value={verJugador}
-                onChange={async (e) => { const v = e.target.value; setVerJugador(v); setSel([]); await guardarPendientes(); if (sesionesVista) setSesiones(sesionesVista); }}>
-                <option value="">— (armar)</option>
-                {jugadores.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
-              </select>
-            </label>
-          </div>
-          {planesSemana.length > 0 && !verJugador && (
-            <div className="row" style={{ gap: 6 }}>
-              <span className="xs muted">Otros planes esta semana:</span>
-              {planesSemana.map((ds) => (
-                <button key={claveDestinos(ds)} type="button" className="btn btn-sm" onClick={() => cambiarDestinos(ds)}>{textoPlan(ds)}</button>
-              ))}
-            </div>
-          )}
+        <div className="row" style={{ gap: 10 }}>
+          <label className="row" style={{ gap: 8 }}>
+            <strong style={{ fontSize: 14 }}>Plan de</strong>
+            <select id="wb-plan" className="select" style={{ height: 40, width: 260 }} value={clave} onChange={(e) => { const v = e.target.value; void cambiarPlan(v); }}>
+              <option value="equipo">Todo el equipo</option>
+              {grupos.length > 0 && <option disabled>──── Grupos ────</option>}
+              {grupos.map((g) => <option key={g.id} value={`grupo:${g.id}`}>{g.nombre}</option>)}
+              {jugadores.length > 0 && <option disabled>──── Jugadores ────</option>}
+              {jugadores.map((j) => <option key={j.id} value={`persona:${j.id}`}>{j.nombre}</option>)}
+            </select>
+          </label>
+          <span className="small muted">
+            {clave === 'equipo' ? 'La base: grupos y jugadores parten de este plan.'
+              : clave.startsWith('grupo:') ? 'Parte del plan del equipo. Lo que cambies acá manda para los jugadores de este grupo.'
+                : 'Parte del plan de su grupo (o del equipo). Lo que cambies acá manda solo para este jugador.'}
+          </span>
         </div>
 
-        {/* Semana y acciones */}
         <div className="row" style={{ gap: 10 }}>
           <div>
-            <h2 className="display" style={{ margin: 0, fontSize: 24 }}>{verJugador ? `Plan de ${nombreDestino({ tipo: 'persona', ref: verJugador })}` : `Plan de ${textoPlan(destinos)}`}</h2>
-            <span className="small muted">Semana del {tituloSemana}</span>
+            <h2 className="display" style={{ margin: 0, fontSize: 24 }}>{nombrePlan(clave)}</h2>
+            <span className="small muted">{titulo}</span>
           </div>
           <div className="row" style={{ gap: 4 }}>
-            <button type="button" className="btn btn-sm" aria-label="Semana anterior" onClick={() => cambiarSemana(sumarDias(lunes, -7))}>‹</button>
-            <button type="button" className="btn btn-sm" onClick={() => cambiarSemana(lunesDe(new Date()))}>Hoy</button>
-            <button type="button" className="btn btn-sm" aria-label="Semana siguiente" onClick={() => cambiarSemana(sumarDias(lunes, 7))}>›</button>
+            <button type="button" className="btn btn-sm" aria-label={compacto ? 'Mes anterior' : 'Semana anterior'} onClick={anterior}>‹</button>
+            <button type="button" className="btn btn-sm" onClick={irHoy}>Hoy</button>
+            <button type="button" className="btn btn-sm" aria-label={compacto ? 'Mes siguiente' : 'Semana siguiente'} onClick={siguiente}>›</button>
+          </div>
+          <div className="row" role="group" aria-label="Vista" style={{ gap: 4 }}>
+            <button type="button" className="chip" aria-pressed={!compacto} onClick={() => compacto && moverPeriodo(lunesDe(dias.includes(diaActivo) ? desdeIso(diaActivo) : ancla), 'semana')}>Semana</button>
+            <button type="button" className="chip" aria-pressed={compacto} onClick={() => !compacto && moverPeriodo(primeroDeMes(sumarDias(ancla, 3)), 'mes')}>Mes</button>
           </div>
           <span className="spacer" />
-          {!verJugador && (
-            <div className="row" style={{ gap: 4 }}>
-              <button type="button" className="btn btn-sm" disabled={!sel.length} onClick={copiar} title="⌘C / Ctrl+C">Copiar{sel.length > 1 ? ` (${sel.length})` : ''}</button>
-              <button type="button" className="btn btn-sm" disabled={!clip.length || esPartido(diaActivo)} onClick={() => pegar()} title="⌘V / Ctrl+V">Pegar en {etiquetaDia(diaActivo in plan ? diaActivo : dias[0])}</button>
-              <button type="button" className="btn btn-sm" disabled={!pasado.length} onClick={deshacer} title="⌘Z / Ctrl+Z">Deshacer</button>
-              <button type="button" className="btn btn-sm link-danger" disabled={!sel.length} onClick={borrar} title="Supr">Borrar</button>
-            </div>
-          )}
+          <div className="row" style={{ gap: 4 }}>
+            <button type="button" className="btn btn-sm" disabled={!sel.length} onClick={copiar} title="⌘C / Ctrl+C">Copiar{sel.length > 1 ? ` (${sel.length})` : ''}</button>
+            <button type="button" className="btn btn-sm" disabled={!clip.length || esPartido(diaActivo) || !dias.includes(diaActivo)} onClick={() => pegar()} title="⌘V / Ctrl+V">Pegar en {etiquetaDia(dias.includes(diaActivo) ? diaActivo : dias[0])}</button>
+            <button type="button" className="btn btn-sm" disabled={!pasado.length} onClick={deshacer} title="⌘Z / Ctrl+Z">Deshacer</button>
+            <button type="button" className="btn btn-sm link-danger" disabled={!sel.length} onClick={borrar} title="Supr">Borrar</button>
+          </div>
           <span className="xs" role="status" style={{ minWidth: 90, textAlign: 'right', color: estado === 'error' ? '#8F1D1D' : 'var(--muted)' }}>
             {estado === 'guardando' ? 'Guardando…' : estado === 'error' ? 'Sin guardar' : 'Guardado'}
           </span>
@@ -330,138 +341,125 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
 
         {error && (
           <p className="notice notice-error" role="alert" style={{ margin: 0 }}>
-            {error} <button type="button" className="btn btn-sm" style={{ marginLeft: 8 }} onClick={() => { setError(''); setEstado('ok'); cargarSemana(); }}>Recargar</button>
+            {error} <button type="button" className="btn btn-sm" style={{ marginLeft: 8 }} onClick={() => { setError(''); setEstado('ok'); cargar(); }}>Recargar</button>
           </p>
         )}
 
-        {!sesiones ? <p className="muted">Cargando semana…</p> : (
-          <div className="wb-grilla" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8 }}>
-            {dias.map((d) => {
-              const partido = partidos.find((p) => p.fecha === d);
-              const md = etiquetaMD(d, partidosIso);
-              const esHoy = d === hoy;
-              const its = plan[d] ?? [];
-              const soltando = soltarEn === d;
-              const propios = verJugador
-                ? (sesionesVista ?? []).filter((s) => s.fecha === d && s.items.length && incluye(s.destinos, verJugador))
-                : null;
-              const tieneAlgo = propios ? propios.length > 0 : its.length > 0;
-              return (
-                <section key={d} aria-label={`${etiquetaDia(d)}${md ? `, ${md}` : ''}`}
-                  onClick={() => { setDiaActivo(d); setSel([]); }}
-                  onDragOver={(e) => { if (verJugador || partido) return; e.preventDefault(); if (soltarEn !== d) setSoltarEn(d); }}
-                  onDragLeave={() => { if (soltarEn === d) setSoltarEn(null); }}
-                  onDrop={(e) => { e.preventDefault(); mover(arrastre, d); setArrastre([]); setSoltarEn(null); }}
-                  style={{
-                    minHeight: 520, borderRadius: 14, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0,
-                    background: esHoy ? 'var(--card)' : '#EDEBE6',
-                    boxShadow: soltando ? `inset 0 0 0 2px ${accent}` : esHoy ? `inset 0 0 0 2px ${accent}` : diaActivo === d && !verJugador ? 'inset 0 0 0 1.5px #9A9DA4' : undefined,
-                  }}>
-                  <header className="row" style={{ justifyContent: 'space-between', gap: 4 }}>
-                    <strong style={{ fontSize: 15 }}>{etiquetaDia(d)}</strong>
-                    {md && <span className="pill" style={md === 'MD' ? { background: accent, color: '#fff' } : { background: 'var(--card)', color: '#3F444D' }}>{md}</span>}
-                  </header>
+        {!mapa ? <p className="muted">Cargando…</p> : (
+          <div className="stack" style={{ gap: 8 }}>
+            {compacto && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8, position: 'sticky', top: 0, background: 'var(--bg)', zIndex: 2, padding: '4px 0' }}>
+                {DIAS_CORTOS.map((d) => <span key={d} className="xs muted" style={{ fontWeight: 600, paddingLeft: 10 }}>{d}</span>)}
+              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8 }}>
+              {dias.map((d) => {
+                const partido = partidos.find((p) => p.fecha === d);
+                const md = etiquetaMD(d, partidosIso);
+                const esHoy = d === hoy;
+                const ef = efectivoDe(d);
+                const its = ef.items;
+                const fueraDeMes = compacto && desdeIso(d).getMonth() !== ancla.getMonth();
+                const heredado = !ef.propio && its.length > 0;
+                return (
+                  <section key={d} aria-label={`${etiquetaDia(d)}${md ? `, ${md}` : ''}`}
+                    onClick={() => { setDiaActivo(d); setSel([]); }}
+                    onDragOver={(e) => { if (partido) return; e.preventDefault(); if (soltarEn !== d) setSoltarEn(d); }}
+                    onDragLeave={() => { if (soltarEn === d) setSoltarEn(null); }}
+                    onDrop={(e) => { e.preventDefault(); mover(arrastre, d); setArrastre([]); setSoltarEn(null); }}
+                    style={{
+                      minHeight: compacto ? 150 : 520, borderRadius: 14, padding: compacto ? 8 : 10, display: 'flex', flexDirection: 'column', gap: compacto ? 6 : 8, minWidth: 0,
+                      background: esHoy ? 'var(--card)' : '#EDEBE6', opacity: fueraDeMes ? 0.55 : 1,
+                      boxShadow: soltarEn === d || esHoy ? `inset 0 0 0 2px ${accent}` : diaActivo === d ? 'inset 0 0 0 1.5px #9A9DA4' : undefined,
+                    }}>
+                    <header className="row" style={{ justifyContent: 'space-between', gap: 4 }}>
+                      <strong style={{ fontSize: compacto ? 13 : 15 }}>{compacto ? desdeIso(d).getDate() : etiquetaDia(d)}</strong>
+                      {md && <span className="pill" style={md === 'MD' ? { background: accent, color: '#fff' } : { background: 'var(--card)', color: '#3F444D' }}>{md}</span>}
+                    </header>
 
-                  {partido && (
-                    <div className="xs" style={{ background: '#FDE3E6', color: '#8F0E1F', borderRadius: 8, padding: '6px 8px', fontWeight: 600 }}>
-                      Partido{partido.hora ? ` · ${hora(partido.hora)}` : ''}{partido.rival ? ` · ${partido.fuera ? 'en' : 'vs'} ${partido.rival}` : ''}
-                    </div>
-                  )}
-
-                  {muestra(perfil.club.wellness_modo, d, tieneAlgo) && (
-                    <div className="xs muted" style={{ border: '1px dashed #C9C6BF', borderRadius: 8, padding: '5px 8px' }}>Wellness</div>
-                  )}
-
-                  {propios ? propios.map((s) => (
-                    <div key={s.id} style={{ background: 'var(--card)', borderRadius: 10, overflow: 'hidden' }}>
-                      <div className="xs" style={{ padding: '6px 10px', fontWeight: 600, color: '#3F444D', display: 'flex', justifyContent: 'space-between', gap: 6, background: '#F6F5F2' }}>
-                        <span style={{ overflowWrap: 'anywhere' }}>{textoPlan(s.destinos)}</span>
-                        <button type="button" className="xs" style={{ border: 0, background: 'transparent', color: accent, fontWeight: 600, padding: 0 }}
-                          onClick={(e) => { e.stopPropagation(); cambiarDestinos(s.destinos); }}>Editar</button>
+                    {partido && (
+                      <div className="xs" style={{ background: '#FDE3E6', color: '#8F0E1F', borderRadius: 8, padding: '5px 8px', fontWeight: 600 }}>
+                        Partido{partido.hora ? ` · ${hora(partido.hora)}` : ''}{partido.rival ? ` · ${partido.fuera ? 'en' : 'vs'} ${partido.rival}` : ''}
                       </div>
-                      {s.items.map((it) => it.tipo === 'break' ? (
-                        <div key={it.id} className="xs" style={{ borderTop: '1px solid #F1EFEA', padding: '6px 10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', color: '#3F444D', overflowWrap: 'anywhere' }}>{it.nombre}</div>
-                      ) : (
-                        <div key={it.id} style={{ borderTop: '1px solid #F1EFEA', padding: '7px 10px' }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{it.nombre}</div>
-                          <div className="xs muted">{esquema(it)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )) : tramosDe(its).map((t, ti) => (
-                    <div key={t.brk?.id ?? `inicio-${ti}`} style={{ background: 'var(--card)', borderRadius: 10, overflow: 'hidden' }}>
-                      {t.brk && (() => {
-                        const it = t.brk; const on = sel.includes(it.id);
-                        return (
-                          <button type="button" draggable aria-pressed={on} aria-label={`Session break: ${it.nombre}`}
-                            onClick={(e) => clicItem(e, it, d)}
-                            onDoubleClick={(e) => { e.stopPropagation(); setEdicion({ fecha: d, item: it, tipo: 'break' }); }}
-                            onDragStart={(e) => empezarArrastre(e, it)}
-                            onDragOver={(e) => { if (!partido) { e.preventDefault(); e.stopPropagation(); if (soltarEn !== d) setSoltarEn(d); } }}
-                            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (!arrastre.includes(it.id)) mover(arrastre, d, it.id); setArrastre([]); setSoltarEn(null); }}
-                            style={{
-                              width: '100%', border: 0, padding: '7px 10px', textAlign: 'left', cursor: 'grab', fontSize: 12, fontWeight: 700,
-                              textTransform: 'uppercase', letterSpacing: '.03em', color: on ? '#16181D' : '#3F444D', overflowWrap: 'anywhere',
-                              background: on ? '#FDECEE' : '#F6F5F2', boxShadow: on ? `inset 3px 0 0 ${accent}` : undefined,
-                            }}>
-                            {it.nombre} <span style={{ fontWeight: 500, color: 'var(--muted)' }}>({t.items.length})</span>
-                          </button>
-                        );
-                      })()}
-                      {t.items.map((it, ii) => {
-                        const on = sel.includes(it.id);
-                        return (
-                          <button key={it.id} type="button" draggable aria-pressed={on}
-                            onClick={(e) => clicItem(e, it, d)}
-                            onDoubleClick={(e) => { e.stopPropagation(); setEdicion({ fecha: d, item: it, tipo: 'ejercicio' }); }}
-                            onDragStart={(e) => empezarArrastre(e, it)}
-                            onDragOver={(e) => { if (!partido) { e.preventDefault(); e.stopPropagation(); if (soltarEn !== d) setSoltarEn(d); } }}
-                            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (!arrastre.includes(it.id)) mover(arrastre, d, it.id); setArrastre([]); setSoltarEn(null); }}
-                            style={{
-                              width: '100%', border: 0, borderTop: t.brk || ii ? '1px solid #F1EFEA' : 0, padding: '8px 10px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
-                              textAlign: 'left', cursor: 'grab', background: on ? '#FDECEE' : 'var(--card)', boxShadow: on ? `inset 3px 0 0 ${accent}` : undefined,
-                            }}>
-                            <span style={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{it.nombre}</span>
-                            <span className="xs muted">{esquema(it)}</span>
-                            {it.descanso_seg != null && <span className="xs muted">Descanso {tiempoTexto(it.descanso_seg)}</span>}
-                            {it.nota && <span className="xs" style={{ color: '#6B4E00' }}>Nota: {it.nota}</span>}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))}
+                    )}
 
-                  {!verJugador && !partido && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <button type="button" className="btn btn-sm btn-ghost" style={{ border: '1.5px dashed #C9C6BF' }}
-                        onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'ejercicio' }); }}>+ Añadir ejercicio</button>
-                      <button type="button" className="btn btn-sm btn-ghost" style={{ height: 30, fontSize: 12, color: 'var(--muted)' }}
-                        onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'break' }); }}>+ Session break</button>
-                    </div>
-                  )}
+                    {clave !== 'equipo' && (ef.propio || heredado) && (
+                      <div className="xs" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, color: 'var(--muted)', flexWrap: 'wrap' }}>
+                        {ef.propio
+                          ? <><span className="pill" style={{ background: '#16181D', color: '#fff' }}>Propio</span>
+                            <button type="button" className="xs" style={{ border: 0, background: 'transparent', color: accent, fontWeight: 600, padding: 0 }}
+                              onClick={(e) => { e.stopPropagation(); volverAHeredar(d); }}>Volver a heredar</button></>
+                          : <span>Hereda de {nombrePlan(ef.desde)}</span>}
+                      </div>
+                    )}
 
-                  <span style={{ flex: 1 }} />
-                  {muestra(perfil.club.rpe_modo, d, tieneAlgo) && (
-                    <div className="xs muted" style={{ border: '1px dashed #C9C6BF', borderRadius: 8, padding: '5px 8px' }}>
-                      RPE{perfil.club.rpe_retraso_min != null ? ` · +${perfil.club.rpe_retraso_min} min` : ''}
-                    </div>
-                  )}
-                </section>
-              );
-            })}
+                    {muestra(perfil.club.wellness_modo, d, its.length > 0) && (
+                      <div className="xs muted" style={{ border: '1px dashed #C9C6BF', borderRadius: 8, padding: '5px 8px' }}>Wellness</div>
+                    )}
+
+                    {tramosDe(its).map((t, ti) => (
+                      <div key={t.brk?.id ?? `inicio-${ti}`} style={{ background: 'var(--card)', borderRadius: 10, overflow: 'hidden', border: heredado ? '1px dashed #C9C6BF' : '1px solid transparent' }}>
+                        {t.brk && (
+                          <button type="button" {...props(t.brk, d, !!partido)} aria-label={`Session break: ${t.brk.nombre}`}
+                            style={{
+                              width: '100%', border: 0, padding: compacto ? '5px 8px' : '7px 10px', textAlign: 'left', cursor: 'grab', fontSize: compacto ? 11 : 12, fontWeight: 700,
+                              textTransform: 'uppercase', letterSpacing: '.03em', color: '#3F444D', overflowWrap: 'anywhere',
+                              background: sel.includes(t.brk.id) ? '#FDECEE' : '#F6F5F2', boxShadow: sel.includes(t.brk.id) ? `inset 3px 0 0 ${accent}` : undefined,
+                            }}>
+                            {t.brk.nombre} <span style={{ fontWeight: 500, color: 'var(--muted)' }}>({t.items.length})</span>
+                          </button>
+                        )}
+                        {t.items.map((it, ii) => {
+                          const on = sel.includes(it.id);
+                          return (
+                            <button key={it.id} type="button" {...props(it, d, !!partido)}
+                              style={{
+                                width: '100%', border: 0, borderTop: t.brk || ii ? '1px solid #F1EFEA' : 0, padding: compacto ? '5px 8px' : '8px 10px',
+                                display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, textAlign: 'left', cursor: 'grab',
+                                background: on ? '#FDECEE' : 'var(--card)', boxShadow: on ? `inset 3px 0 0 ${accent}` : undefined,
+                              }}>
+                              <span style={{ fontSize: compacto ? 12 : 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{it.nombre}</span>
+                              <span className="xs muted">{esquema(it)}</span>
+                              {!compacto && it.descanso_seg != null && <span className="xs muted">Descanso {tiempoTexto(it.descanso_seg)}</span>}
+                              {!compacto && it.nota && <span className="xs" style={{ color: '#6B4E00' }}>Nota: {it.nota}</span>}
+                              {clave !== 'equipo' && ef.propio && it.modificado && <span className="xs" style={{ color: '#43307E', fontWeight: 600 }}>Cambiado en este plan</span>}
+                              {clave !== 'equipo' && ef.propio && !it.origen_id && <span className="xs" style={{ color: '#43307E', fontWeight: 600 }}>Solo en este plan</span>}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ))}
+
+                    {!partido && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <button type="button" className="btn btn-sm btn-ghost" style={{ border: '1.5px dashed #C9C6BF', height: compacto ? 28 : undefined, fontSize: compacto ? 12 : undefined }}
+                          onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'ejercicio' }); }}>+ Ejercicio</button>
+                        <button type="button" className="btn btn-sm btn-ghost" style={{ height: 26, fontSize: 12, color: 'var(--muted)' }}
+                          onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'break' }); }}>+ Session break</button>
+                      </div>
+                    )}
+
+                    <span style={{ flex: 1 }} />
+                    {muestra(perfil.club.rpe_modo, d, its.length > 0) && (
+                      <div className="xs muted" style={{ border: '1px dashed #C9C6BF', borderRadius: 8, padding: '5px 8px' }}>
+                        RPE{perfil.club.rpe_retraso_min != null ? ` · +${perfil.club.rpe_retraso_min} min` : ''}
+                      </div>
+                    )}
+                  </section>
+                );
+              })}
+            </div>
           </div>
         )}
 
-        {!verJugador && (
-          <p className="xs muted" style={{ margin: 0 }}>
-            Clic para elegir (⌘ o Mayús para varios) · doble clic para editar · ⌘C copiar · ⌘V pegar en el día marcado · ⌘Z deshacer · Supr borrar · arrastrá para mover a otro día o reordenar. Se guarda solo.
-          </p>
-        )}
+        <p className="xs muted" style={{ margin: 0 }}>
+          Clic para elegir (⌘ o Mayús para varios) · doble clic para editar · ⌘C copiar · ⌘V pegar en el día marcado · ⌘Z deshacer · Supr borrar · arrastrá para mover o reordenar. Se guarda solo.
+        </p>
       </div>
 
       {edicion && edicion.tipo === 'ejercicio' && (
         <EditorItem
-          dia={`${etiquetaDia(edicion.fecha)}${etiquetaMD(edicion.fecha, partidosIso) ? ` · ${etiquetaMD(edicion.fecha, partidosIso)}` : ''} · ${textoPlan(destinos)}`}
+          dia={`${etiquetaDia(edicion.fecha)}${etiquetaMD(edicion.fecha, partidosIso) ? ` · ${etiquetaMD(edicion.fecha, partidosIso)}` : ''} · ${nombrePlan(clave)}`}
           item={edicion.item}
           biblioteca={biblioteca}
           onBibliotecaCambio={onBibliotecaCambio}
@@ -472,7 +470,54 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
       {edicion && edicion.tipo === 'break' && (
         <EditorBreak item={edicion.item} sugeridos={nombresBreak} onCerrar={() => setEdicion(null)} onGuardar={(it) => guardarEnDia(edicion, it)} />
       )}
+      {conflictos && mapa && (
+        <DialogoConflictos lista={conflictos} nombrePlan={nombrePlan} etiquetaDia={etiquetaDia}
+          onCerrar={() => setConflictos(null)}
+          onAplicar={(elegidos) => {
+            const m = { ...mapa };
+            const otros: Conflicto[] = [];
+            aplicarConflictos(conflictos.filter((c) => elegidos.includes(c.clave)), m, ctx, otros);
+            aplicarMapa(m);
+            setConflictos(otros.length ? otros : null);
+          }} />
+      )}
     </div>
+  );
+}
+
+function DialogoConflictos({ lista, nombrePlan, etiquetaDia, onCerrar, onAplicar }: {
+  lista: Conflicto[]; nombrePlan: (c: string) => string; etiquetaDia: (d: string) => string;
+  onCerrar: () => void; onAplicar: (claves: string[]) => void;
+}) {
+  const planes = [...new Set(lista.map((c) => c.clave))];
+  const [marcados, setMarcados] = useState<string[]>([]);
+  const cambios = [...new Map(lista.map((c) => [`${c.tipo}|${c.padre.id}`, c])).values()];
+  return (
+    <Dialogo titulo="¿A quiénes se lo aplico?" onCerrar={onCerrar} ancho={520}
+      pie={<>
+        <button type="button" className="btn" onClick={onCerrar}>No aplicar</button>
+        <button type="button" className="btn btn-primary" disabled={!marcados.length} onClick={() => onAplicar(marcados)}>Aplicar a los marcados</button>
+      </>}>
+      <div className="stack" style={{ gap: 12 }}>
+        <ul style={{ margin: 0, paddingLeft: 18 }}>
+          {cambios.map((c) => (
+            <li key={`${c.tipo}${c.padre.id}`} className="small">
+              {c.tipo === 'borrar' ? 'Borraste' : 'Cambiaste'} «{c.padre.nombre}» ({etiquetaDia(c.fecha)})
+            </li>
+          ))}
+        </ul>
+        <p className="small" style={{ margin: 0 }}>Esto también está, personalizado, en estos planes. Marcá a cuáles querés aplicarles el cambio; los demás quedan como están.</p>
+        <div className="stack" style={{ gap: 6 }}>
+          {planes.map((p) => (
+            <label key={p} className="row" style={{ gap: 8, cursor: 'pointer', minHeight: 36 }}>
+              <input type="checkbox" checked={marcados.includes(p)} style={{ width: 18, height: 18, accentColor: '#16181D' }}
+                onChange={(e) => setMarcados(e.target.checked ? [...marcados, p] : marcados.filter((x) => x !== p))} />
+              <span>{p.startsWith('grupo:') ? 'Grupo' : 'Jugador'} · {nombrePlan(p)}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+    </Dialogo>
   );
 }
 
@@ -483,7 +528,7 @@ function EditorBreak({ item, sugeridos, onCerrar, onGuardar }: { item: Item | nu
     if (!ok) return;
     onGuardar({
       id: item?.id ?? nuevoId(), tipo: 'break', bloque: 'Bloque principal', ejercicio_id: null, nombre: nombre.trim(), series: 0, reps: '',
-      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: '',
+      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: '', origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false,
     });
   };
   return (

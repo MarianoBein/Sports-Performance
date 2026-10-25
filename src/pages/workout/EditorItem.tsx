@@ -10,10 +10,18 @@ const leerKg = (t: string): number | null => {
   return Number.isFinite(n) && n >= 0 && n <= 1000 ? Math.round(n * 100) / 100 : null;
 };
 
-function ajustarDetalle(detalle: Serie[], series: number, reps: string): Serie[] {
-  const out = detalle.slice(0, series);
-  while (out.length < series) out.push({ reps: out[out.length - 1]?.reps ?? reps, kg: out[out.length - 1]?.kg ?? null });
-  return out;
+// Una fila por serie. Lo que escribís en la primera se copia a las que no tocaste.
+type Fila = { reps: string; kg: string; tocadaReps: boolean; tocadaKg: boolean };
+const kgAtexto = (kg: number | null | undefined) => (kg == null ? '' : String(kg).replace('.', ','));
+
+function filasIniciales(item: Item | null): Fila[] {
+  if (!item) return Array.from({ length: 3 }, () => ({ reps: '', kg: '', tocadaReps: false, tocadaKg: false }));
+  const det: Serie[] = item.detalle.length ? item.detalle : Array.from({ length: item.series }, () => ({ reps: item.reps, kg: null }));
+  const r0 = det[0]?.reps ?? ''; const k0 = kgAtexto(det[0]?.kg);
+  return Array.from({ length: item.series }, (_, i) => {
+    const d = det[i] ?? det[det.length - 1] ?? { reps: '', kg: null };
+    return { reps: d.reps ?? '', kg: kgAtexto(d.kg), tocadaReps: i > 0 && (d.reps ?? '') !== r0, tocadaKg: i > 0 && kgAtexto(d.kg) !== k0 };
+  });
 }
 
 export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar, onBibliotecaCambio }: {
@@ -28,12 +36,9 @@ export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar,
   const [elegido, setElegido] = useState<{ id: string | null; nombre: string } | null>(item ? { id: item.ejercicio_id, nombre: item.nombre } : null);
   const [abierto, setAbierto] = useState(!item);
   const [tipo, setTipo] = useState('Todos');
-  const [series, setSeries] = useState(item?.series ?? 3);
-  const [reps, setReps] = useState(item?.reps ?? '');
+  const [filas, setFilas] = useState<Fila[]>(() => filasIniciales(item));
+  const series = filas.length;
   const [cadaLado, setCadaLado] = useState(item?.cada_lado ?? false);
-  const [conCarga, setConCarga] = useState(item?.con_carga ?? false);
-  const [detalle, setDetalle] = useState<Serie[]>(item?.detalle.length ? item.detalle : []);
-  const [kgTexto, setKgTexto] = useState<string[]>((item?.detalle ?? []).map((s) => (s.kg == null ? '' : String(s.kg).replace('.', ','))));
   const [conDescanso, setConDescanso] = useState(item?.descanso_seg != null);
   const [min, setMin] = useState(item?.descanso_seg != null ? String(Math.floor(item.descanso_seg / 60)) : '1');
   const [seg, setSeg] = useState(item?.descanso_seg != null ? String(item.descanso_seg % 60).padStart(2, '0') : '30');
@@ -49,12 +54,21 @@ export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar,
   }, [busca, tipo, biblioteca]);
   const existeExacto = biblioteca.some((e) => normalizar(e.nombre) === normalizar(busca));
 
-  const filas = conCarga ? ajustarDetalle(detalle, series, reps) : [];
-
   function cambiarSeries(n: number) {
     const v = Math.min(20, Math.max(1, n));
-    setSeries(v);
-    if (conCarga) { setDetalle(ajustarDetalle(detalle, v, reps)); setKgTexto((k) => ajustarDetalle(detalle, v, reps).map((_, i) => k[i] ?? k[k.length - 1] ?? '')); }
+    setFilas((f) => {
+      const out = f.slice(0, v);
+      while (out.length < v) out.push({ reps: f[0]?.reps ?? '', kg: f[0]?.kg ?? '', tocadaReps: false, tocadaKg: false });
+      return out;
+    });
+  }
+
+  function cambiarFila(i: number, campo: 'reps' | 'kg', valor: string) {
+    setFilas((f) => f.map((x, j) => {
+      if (j === i) return { ...x, [campo]: valor, ...(i > 0 ? (campo === 'reps' ? { tocadaReps: true } : { tocadaKg: true }) : {}) };
+      if (i === 0 && !(campo === 'reps' ? x.tocadaReps : x.tocadaKg)) return { ...x, [campo]: valor };
+      return x;
+    }));
   }
 
   async function crearEnBiblioteca() {
@@ -78,10 +92,14 @@ export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar,
       if (!Number.isInteger(m) || !Number.isInteger(s) || m < 0 || s < 0 || s > 59 || m * 60 + s > 3600) { setError('El descanso va en minutos y segundos (por ejemplo, 1:30).'); return; }
       descanso = m * 60 + s;
     }
-    const det = conCarga ? filas.map((f, i) => ({ reps: f.reps.trim(), kg: leerKg(kgTexto[i] ?? '') })) : [];
+    for (const f of filas) {
+      if (f.kg.trim() && leerKg(f.kg) == null) { setError('Los kilos tienen que ser un número (por ejemplo, 22,5).'); return; }
+    }
+    const det = filas.map((f) => ({ reps: f.reps.trim(), kg: leerKg(f.kg) }));
     onGuardar({
-      id: item?.id ?? nuevoId(), tipo: 'ejercicio', bloque: item?.bloque ?? 'Bloque principal', ejercicio_id: elegido.id, nombre: elegido.nombre, series, reps: reps.trim(),
-      cada_lado: cadaLado, con_carga: conCarga, detalle: det, descanso_seg: descanso, nota: conNota ? nota.trim() : '',
+      id: item?.id ?? nuevoId(), tipo: 'ejercicio', bloque: item?.bloque ?? 'Bloque principal', ejercicio_id: elegido.id, nombre: elegido.nombre,
+      series, reps: det[0]?.reps ?? '', cada_lado: cadaLado, con_carga: det.some((d) => d.kg != null), detalle: det,
+      descanso_seg: descanso, nota: conNota ? nota.trim() : '', origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false,
     });
   }
 
@@ -138,38 +156,31 @@ export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar,
               <button type="button" className="btn btn-sm" aria-label="Una serie más" onClick={() => cambiarSeries(series + 1)}>+</button>
             </div>
           </div>
-          <label className="field" style={{ width: 120 }}><span>Reps</span>
-            <input id="it-reps" className="input" maxLength={20} value={reps} placeholder="8 · 30 s" onChange={(e) => { setReps(e.target.value); if (conCarga && detalle.every((d) => d.reps === reps)) setDetalle(ajustarDetalle(detalle, series, e.target.value).map((d) => ({ ...d, reps: e.target.value }))); }} />
-          </label>
           <label className="row" style={{ gap: 8, minHeight: 44, cursor: 'pointer' }}>
             <input id="it-lado" type="checkbox" checked={cadaLado} onChange={(e) => setCadaLado(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#16181D' }} />
             <span>Cada lado</span>
           </label>
-          <label className="row" style={{ gap: 8, minHeight: 44, cursor: 'pointer' }}>
-            <input id="it-carga" type="checkbox" checked={conCarga} onChange={(e) => {
-              setConCarga(e.target.checked);
-              if (e.target.checked) { const d = ajustarDetalle(detalle.length ? detalle : [], series, reps); setDetalle(d); setKgTexto((k) => d.map((_, i) => k[i] ?? '')); }
-            }} style={{ width: 18, height: 18, accentColor: '#16181D' }} />
-            <span>Carga y reps por serie</span>
-          </label>
         </div>
 
-        {conCarga && (
-          <table className="tbl" style={{ maxWidth: 360 }}>
+        <div>
+          <table className="tbl" style={{ maxWidth: 380 }}>
             <thead><tr><th>Serie</th><th>{cadaLado ? 'Reps c/lado' : 'Reps'}</th><th>Kg</th></tr></thead>
             <tbody>
               {filas.map((f, i) => (
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{i + 1}</td>
-                  <td><input className="input" style={{ height: 38, width: 90 }} aria-label={`Reps de la serie ${i + 1}`} maxLength={20} value={f.reps}
-                    onChange={(e) => setDetalle(filas.map((x, j) => (j === i ? { ...x, reps: e.target.value } : x)))} /></td>
-                  <td><input className="input" style={{ height: 38, width: 90 }} inputMode="decimal" aria-label={`Kilos de la serie ${i + 1}`} placeholder="—" value={kgTexto[i] ?? ''}
-                    onChange={(e) => setKgTexto(filas.map((_, j) => (j === i ? e.target.value : kgTexto[j] ?? '')))} /></td>
+                  <td><input className="input" id={`it-reps-${i}`} style={{ height: 38, width: 100, color: i > 0 && !f.tocadaReps ? 'var(--muted)' : undefined }}
+                    aria-label={`Reps de la serie ${i + 1}`} maxLength={20} value={f.reps} placeholder={i === 0 ? '8 · 30 s' : ''}
+                    onChange={(e) => cambiarFila(i, 'reps', e.target.value)} /></td>
+                  <td><input className="input" id={`it-kg-${i}`} style={{ height: 38, width: 100, color: i > 0 && !f.tocadaKg ? 'var(--muted)' : undefined }}
+                    inputMode="decimal" aria-label={`Kilos de la serie ${i + 1}`} placeholder="—" value={f.kg}
+                    onChange={(e) => cambiarFila(i, 'kg', e.target.value)} /></td>
                 </tr>
               ))}
             </tbody>
           </table>
-        )}
+          <p className="xs muted" style={{ margin: '4px 0 0' }}>Lo que pongas en la serie 1 se copia a las demás; si cambiás otra serie, esa queda como la dejaste. Los kilos se pueden dejar vacíos.</p>
+        </div>
 
         {conDescanso ? (
           <div className="row" style={{ gap: 8 }}>

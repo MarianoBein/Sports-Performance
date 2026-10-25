@@ -83,6 +83,8 @@ export type Item = {
   detalle: Serie[];
   descanso_seg: number | null;
   nota: string;
+  origen_id: string | null;   // de qué ejercicio del nivel superior salió esta copia
+  modificado: boolean;        // si la cambiaste en este nivel (entonces no se pisa sola)
 };
 export type Sesion = { id: string; fecha: string; destinos: Destino[]; items: Item[] };
 
@@ -115,6 +117,8 @@ export function itemDesdeDb(r: Record<string, unknown>): Item {
     detalle: Array.isArray(r.detalle) ? (r.detalle as Serie[]) : [],
     descanso_seg: r.descanso_seg == null ? null : Number(r.descanso_seg),
     nota: (r.nota as string) ?? '',
+    origen_id: (r.origen_id as string) ?? null,
+    modificado: !!r.modificado,
   };
 }
 
@@ -122,10 +126,13 @@ const kgTexto = (kg: number | null) => (kg == null ? '—' : String(kg).replace(
 
 // «4 × 8 c/lado · 60-60-60-60»
 export function esquema(it: Item): string {
-  const repsVariables = it.con_carga && it.detalle.length && new Set(it.detalle.map((s) => s.reps)).size > 1;
-  const reps = repsVariables ? it.detalle.map((s) => s.reps || '—').join('-') : (it.reps || it.detalle[0]?.reps || '—');
+  const repsVariables = it.detalle.length > 1 && new Set(it.detalle.map((s) => s.reps)).size > 1;
+  const reps = repsVariables ? it.detalle.map((s) => s.reps || '—').join('-') : (it.detalle[0]?.reps || it.reps || '—');
   let t = `${it.series} × ${reps}${it.cada_lado ? ' c/lado' : ''}`;
-  if (it.con_carga && it.detalle.some((s) => s.kg != null)) t += ` · ${it.detalle.map((s) => kgTexto(s.kg)).join('-')}`;
+  if (it.detalle.some((s) => s.kg != null)) {
+    const kgs = it.detalle.map((s) => kgTexto(s.kg));
+    t += ` · ${new Set(kgs).size === 1 ? `${kgs[0]} kg` : kgs.join('-')}`;
+  }
   return t;
 }
 
@@ -146,7 +153,7 @@ export function etiquetaMD(fecha: string, partidos: string[]): string | null {
     if (d > 0 && (despues == null || d < despues)) despues = d;
   }
   if (antes != null && antes <= 2) return `MD+${antes}`;
-  if (despues != null) return `MD-${despues}`;
-  if (antes != null) return `MD+${antes}`;
-  return null;
+  if (despues != null && despues <= 7) return `MD-${despues}`;
+  if (antes != null && antes <= 7) return `MD+${antes}`;
+  return null; // lejos de cualquier partido (pretemporada, parones): sin etiqueta
 }
