@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { supabase, mensajeError } from '../lib/supabase';
 import { useSesion } from '../lib/sesion';
 import { fechaLarga, hoyIso, iso, desdeIso, sumarDias } from '../lib/calendario';
+import { PestanaPerfil, PestanaSemana, PestanaSesion, PestanaWellness } from './ssh/Pestanas';
 import { COLORES_5, TEXTO_5, bienDe, colorRpe, type Pregunta } from '../lib/wellness';
 
 type Fila = {
@@ -40,6 +41,24 @@ export default function SportsScience() {
 }
 
 function VistaStaff({ edita }: { edita: boolean }) {
+  const [tab, setTab] = useState<'dia' | 'wellness' | 'sesion' | 'semana' | 'perfil'>('dia');
+  const tabs = [['dia', 'Día'], ['wellness', 'Wellness'], ['sesion', 'Sesión'], ['semana', 'Semana'], ['perfil', 'Perfil']] as const;
+  return (
+    <div className="stack">
+      <h1 className="display" style={{ fontSize: 38 }}>Sports Science Hub</h1>
+      <div className="tabs" role="tablist" aria-label="Secciones">
+        {tabs.map(([k, t]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{t}</button>)}
+      </div>
+      {tab === 'dia' && <VistaDia edita={edita} />}
+      {tab === 'wellness' && <PestanaWellness />}
+      {tab === 'sesion' && <PestanaSesion />}
+      {tab === 'semana' && <PestanaSemana />}
+      {tab === 'perfil' && <PestanaPerfil />}
+    </div>
+  );
+}
+
+function VistaDia({ edita }: { edita: boolean }) {
   const [fecha, setFecha] = useState(hoyIso());
   const [filas, setFilas] = useState<Fila[]>([]);
   const [minEquipo, setMinEquipo] = useState<number | null>(null);
@@ -79,10 +98,7 @@ function VistaStaff({ edita }: { edita: boolean }) {
   return (
     <div className="stack">
       <div className="page-head" style={{ marginBottom: 0 }}>
-        <div>
-          <p className="muted small" style={{ margin: '0 0 4px' }}>Wellness y RPE del día · las demás vistas llegan en el próximo módulo</p>
-          <h1 className="display" style={{ fontSize: 38 }}>Sports Science Hub</h1>
-        </div>
+        <p className="muted small" style={{ margin: 0 }}>Wellness, RPE y minutos del día. Acá se cargan los minutos y se marca «no aplica».</p>
         <div className="row">
           <button type="button" className="btn" style={{ width: 44, padding: 0 }} aria-label="Día anterior" onClick={() => setFecha(iso(sumarDias(desdeIso(fecha), -1)))}>‹</button>
           <label><span className="sr-only">Fecha</span><input className="input" type="date" value={fecha} onChange={(e) => e.target.value && setFecha(e.target.value)} style={{ width: 170 }} /></label>
