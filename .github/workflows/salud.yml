@@ -7,7 +7,7 @@ on:
     - cron: '*/30 * * * *'
   workflow_dispatch:
 env:
-  APP_URL: https://sports-performance-5.vercel.app
+  APP_URL: https://sports-performance-five.vercel.app
 jobs:
   comprobar:
     runs-on: ubuntu-latest
