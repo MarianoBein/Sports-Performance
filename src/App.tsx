@@ -14,6 +14,7 @@ import Ajustes from './pages/Ajustes';
 import Wellness from './pages/Wellness';
 import Rpe from './pages/Rpe';
 import SportsScience from './pages/SportsScience';
+import CambiarClave from './pages/CambiarClave';
 import type { ReactNode } from 'react';
 
 function Protegida({ children, modulo, soloDueno }: { children: ReactNode; modulo?: Modulo; soloDueno?: boolean }) {
@@ -22,6 +23,7 @@ function Protegida({ children, modulo, soloDueno }: { children: ReactNode; modul
   if (!sesion) return <Navigate to="/entrar" replace />;
   if (soloDueno) return esDueno ? <Layout>{children}</Layout> : <Navigate to="/" replace />;
   if (!perfil) return <Navigate to="/alta?pendiente=1" replace />;
+  if (perfil.debe_cambiar_clave) return <CambiarClave />;
   if (modulo && permisos && !puede(permisos, modulo)) return <Navigate to="/" replace />;
   return <Layout>{children}</Layout>;
 }

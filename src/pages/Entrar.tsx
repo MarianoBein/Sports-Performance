@@ -41,6 +41,7 @@ export default function Entrar() {
         <button className="btn btn-dark btn-block" type="submit" disabled={enviando}>{enviando ? 'Entrando…' : 'Iniciar sesión'}</button>
       </form>
       <Link to="/alta" className="btn btn-primary btn-block">Tengo un código</Link>
+      <p className="xs muted" style={{ textAlign: 'center', margin: '4px 0 0' }}>¿Te olvidaste la contraseña? Pedile a un administrador de tu club que te la restablezca desde Usuarios.</p>
     </div>
   );
 }

@@ -313,9 +313,12 @@ function EditarPersona({ persona, roles, grupos, gruposActuales, onCerrar, onGua
         <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
         <button type="button" className="btn btn-primary" disabled={guardando} onClick={guardar}>{guardando ? 'Guardando…' : 'Guardar cambios'}</button>
       </>}>
-      <div>
-        <strong style={{ fontSize: 16 }}>{persona.nombre}</strong>
-        <div className="small muted">{persona.email}</div>
+      <div className="row" style={{ justifyContent: 'space-between', gap: 10 }}>
+        <div>
+          <strong style={{ fontSize: 16 }}>{persona.nombre}</strong>
+          <div className="small muted">{persona.email}</div>
+        </div>
+        <RestablecerClave persona={persona} />
       </div>
       <label className="field"><span>Rol (plantilla)</span>
         <select className="select" value={rolId} onChange={(e) => cambiarRol(e.target.value)}>
@@ -457,5 +460,63 @@ function NuevoRol({ onCerrar, onCreado }: { onCerrar: () => void; onCreado: () =
       <EditorPermisos valor={permisos} onCambio={setPermisos} />
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
     </Dialogo>
+  );
+}
+
+// Clave temporal para quien se olvidó la suya: el admin se la manda por WhatsApp
+// y al entrar la persona elige una nueva.
+function RestablecerClave({ persona }: { persona: Persona }) {
+  const [paso, setPaso] = useState<'inicio' | 'confirmar' | 'listo'>('inicio');
+  const [clave, setClave] = useState('');
+  const [error, setError] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+
+  async function restablecer() {
+    setEnviando(true); setError('');
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    try {
+      const r = await fetch('/api/restablecer-clave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` },
+        body: JSON.stringify({ perfil_id: persona.id }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setError(j.error || 'No se pudo restablecer la contraseña.'); return; }
+      setClave(j.clave); setPaso('listo');
+    } catch {
+      setError('No hay conexión. Probá de nuevo.');
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  const mensaje = `Hola ${persona.nombre.split(' ')[0]}, tu contraseña temporal para entrar a la app es: ${clave}\nEntrá en ${window.location.origin} con tu email (${persona.email}) y esa contraseña; te va a pedir que elijas una nueva.`;
+
+  if (paso === 'inicio') return <button type="button" className="btn btn-sm" onClick={() => setPaso('confirmar')}>Restablecer contraseña</button>;
+  return (
+    <div className="card stack" style={{ padding: 12, gap: 8, flex: '1 1 100%', background: 'var(--bg)' }}>
+      {paso === 'confirmar' ? (
+        <>
+          <span className="small">Se crea una contraseña temporal para {persona.nombre} y la actual deja de funcionar. ¿Seguimos?</span>
+          <div className="row" style={{ gap: 6 }}>
+            <button type="button" className="btn btn-sm" onClick={() => setPaso('inicio')}>Cancelar</button>
+            <button type="button" className="btn btn-sm btn-primary" disabled={enviando} onClick={restablecer}>{enviando ? 'Creando…' : 'Crear contraseña temporal'}</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <span className="small">Contraseña temporal de {persona.nombre}:</span>
+          <code style={{ fontSize: 22, fontWeight: 700, letterSpacing: '.04em', userSelect: 'all' }}>{clave}</code>
+          <div className="row" style={{ gap: 6 }}>
+            <button type="button" className="btn btn-sm" onClick={async () => { try { await navigator.clipboard.writeText(mensaje); setCopiado(true); } catch { setCopiado(false); } }}>{copiado ? 'Copiado ✓' : 'Copiar mensaje'}</button>
+            <a className="btn btn-sm btn-primary" href={`https://wa.me/?text=${encodeURIComponent(mensaje)}`} target="_blank" rel="noopener noreferrer">Mandar por WhatsApp</a>
+          </div>
+          <span className="xs muted">Al entrar con esta contraseña, la app le pide elegir una nueva. Queda anotado en el registro de cambios.</span>
+        </>
+      )}
+      {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+    </div>
   );
 }
