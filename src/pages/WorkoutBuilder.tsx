@@ -4,8 +4,9 @@ import { useSesion } from '../lib/sesion';
 import Dialogo from '../components/Dialogo';
 import { CATEGORIAS, IMPLEMENTOS, miniatura, normalizar, tonoCategoria, type Ejercicio } from '../lib/workout';
 import Semana from './workout/Semana';
+import Entreno from './workout/Entreno';
 
-type Tab = 'semana' | 'biblioteca';
+type Tab = 'semana' | 'jugadores' | 'biblioteca';
 const POR_PAGINA = 60;
 
 function Etiquetas({ e }: { e: Ejercicio }) {
@@ -240,7 +241,8 @@ export default function WorkoutBuilder() {
   const { perfil, permisos } = useSesion();
   const editable = permisos?.workout_builder.nivel === 'editar';
   const esJugador = !!perfil?.rol.es_jugador && !perfil.es_admin;
-  const [tab, setTab] = useState<Tab>(esJugador || !editable ? 'biblioteca' : 'semana');
+  const movil = typeof window !== 'undefined' && window.matchMedia('(max-width: 900px)').matches;
+  const [tab, setTab] = useState<Tab>(!editable || movil ? 'jugadores' : 'semana');
   const [biblioteca, setBiblioteca] = useState<Ejercicio[]>([]);
 
   useEffect(() => {
@@ -259,20 +261,43 @@ export default function WorkoutBuilder() {
         <h1 className="display" style={{ fontSize: 38 }}>Workout Builder</h1>
       </div>
 
-      {esJugador ? (
-        <div className="card" style={{ padding: 20 }}>
-          <p style={{ margin: 0 }}>Acá vas a ver tus entrenamientos. Llega en la próxima versión.</p>
-        </div>
-      ) : (
+      {esJugador ? <Entreno /> : (
         <>
           <div className="tabs" role="tablist" aria-label="Secciones">
-            {editable && <button type="button" role="tab" aria-selected={tab === 'semana'} onClick={() => setTab('semana')}>Semana</button>}
+            {editable && <button type="button" role="tab" aria-selected={tab === 'semana'} onClick={() => setTab('semana')}>Planes</button>}
+            <button type="button" role="tab" aria-selected={tab === 'jugadores'} onClick={() => setTab('jugadores')}>Jugadores</button>
             <button type="button" role="tab" aria-selected={tab === 'biblioteca'} onClick={() => setTab('biblioteca')}>Biblioteca</button>
           </div>
           {tab === 'semana' && editable && <Semana biblioteca={biblioteca} onBibliotecaCambio={(e) => setBiblioteca((b) => [...b, e].sort((x, y) => x.nombre.localeCompare(y.nombre)))} />}
+          {tab === 'jugadores' && <EntrenoDeJugador />}
           {tab === 'biblioteca' && <Biblioteca editable={editable} />}
         </>
       )}
+    </div>
+  );
+}
+
+// El staff ve el día de cada jugador tal como lo ve él (sin poder cambiarlo).
+function EntrenoDeJugador() {
+  const [jugadores, setJugadores] = useState<{ id: string; nombre: string }[]>([]);
+  const [elegido, setElegido] = useState('');
+  useEffect(() => {
+    supabase.from('perfiles').select('id,nombre,rol:roles!inner(es_jugador)').eq('rol.es_jugador', true).is('eliminado_en', null).order('nombre')
+      .then(({ data }) => {
+        const js = (data as unknown as { id: string; nombre: string }[]) ?? [];
+        setJugadores(js);
+        if (js[0]) setElegido((e) => e || js[0].id);
+      });
+  }, []);
+  return (
+    <div className="stack" style={{ gap: 14 }}>
+      <label className="field" style={{ maxWidth: 560, width: '100%', margin: '0 auto' }}><span>Jugador</span>
+        <select id="wb-jugador" className="select" value={elegido} onChange={(e) => setElegido(e.target.value)}>
+          {jugadores.length === 0 && <option value="">Todavía no hay jugadores</option>}
+          {jugadores.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
+        </select>
+      </label>
+      {elegido && <Entreno key={elegido} perfilId={elegido} soloLectura />}
     </div>
   );
 }

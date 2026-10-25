@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { COLORES_5, PREGUNTAS, TEXTO_5, bienDe, type Pregunta } from '../lib/wellness';
 import { hoyIso } from '../lib/calendario';
@@ -10,6 +10,9 @@ type Valores = Record<Pregunta['clave'], number | null>;
 export default function Wellness() {
   const { perfil } = useSesion();
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const volver = params.get('volver');
+  const destino = volver && /^\/[a-z-]*$/.test(volver) ? volver : '/';
   const [v, setV] = useState<Valores>({ sueno: null, fatiga: null, estres: null, dolor: null });
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -31,7 +34,7 @@ export default function Wellness() {
     const { error } = await supabase.rpc('guardar_wellness', { p_sueno: v.sueno, p_fatiga: v.fatiga, p_estres: v.estres, p_dolor: v.dolor });
     setEnviando(false);
     if (error) { setError(mensajeError(error)); return; }
-    nav('/', { replace: true });
+    nav(destino, { replace: true });
   }
 
   return (

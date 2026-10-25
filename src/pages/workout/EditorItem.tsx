@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Dialogo from '../../components/Dialogo';
 import { supabase, mensajeError } from '../../lib/supabase';
 import { CATEGORIAS, nuevoId, normalizar, type Ejercicio, type Item, type Serie } from '../../lib/workout';
@@ -24,10 +24,12 @@ function filasIniciales(item: Item | null): Fila[] {
   });
 }
 
-export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar, onBibliotecaCambio }: {
+export default function EditorItem({ dia, item, biblioteca, jugadores = [], jugadorInicial = '', onCerrar, onGuardar, onBibliotecaCambio }: {
   dia: string;
   item: Item | null;
   biblioteca: Ejercicio[];
+  jugadores?: { id: string; nombre: string }[];
+  jugadorInicial?: string;
   onCerrar: () => void;
   onGuardar: (it: Item) => void;
   onBibliotecaCambio: (e: Ejercicio) => void;
@@ -46,6 +48,7 @@ export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar,
   const [nota, setNota] = useState(item?.nota ?? '');
   const [error, setError] = useState('');
   const [creando, setCreando] = useState(false);
+  const [verHistorial, setVerHistorial] = useState(false);
 
   const sugerencias = useMemo(() => {
     const p = normalizar(busca).split(' ').filter(Boolean);
@@ -107,6 +110,7 @@ export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar,
     <Dialogo titulo={item ? 'Editar ejercicio' : 'Añadir ejercicio'} onCerrar={onCerrar} ancho={640}
       pie={<>
         <span className="small muted" style={{ marginRight: 'auto' }}>{dia}</span>
+        {elegido && <button type="button" className="btn btn-ghost" aria-pressed={verHistorial} onClick={() => setVerHistorial(!verHistorial)}>Historial</button>}
         <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
         <button type="button" className="btn btn-primary" onClick={guardar}>{item ? 'Guardar' : 'Añadir'}</button>
       </>}>
@@ -210,8 +214,66 @@ export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar,
           </div>
         )}
 
+        {verHistorial && elegido && <Historial ejercicioId={elegido.id} nombre={elegido.nombre} jugadores={jugadores} inicial={jugadorInicial} />}
+
         {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
       </div>
     </Dialogo>
+  );
+}
+
+type Registro = { fecha: string; prescrito: Serie[]; hecho: Serie[]; completado: boolean };
+const fmt = (s?: Serie) => (s ? `${s.kg == null ? '—' : String(s.kg).replace('.', ',')} × ${s.reps || '—'}` : '—');
+
+// Lo que el PF prescribió (C) y lo que hizo el jugador (A), sesión por sesión. Solo para el staff.
+function Historial({ ejercicioId, nombre, jugadores, inicial }: { ejercicioId: string | null; nombre: string; jugadores: { id: string; nombre: string }[]; inicial: string }) {
+  const [jugador, setJugador] = useState(inicial || jugadores[0]?.id || '');
+  const [lista, setLista] = useState<Registro[] | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (!jugador) return;
+    setLista(null); setError('');
+    supabase.rpc('historial_ejercicio', { p_perfil: jugador, p_ejercicio: ejercicioId, p_nombre: nombre })
+      .then(({ data, error }) => { if (error) { setError(mensajeError(error)); setLista([]); } else setLista((data as Registro[]) ?? []); });
+  }, [jugador, ejercicioId, nombre]);
+  return (
+    <section className="card stack" style={{ padding: 14, gap: 10, background: 'var(--bg)' }} aria-label="Historial">
+      <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+        <strong>Historial · {nombre}</strong>
+        <label><span className="sr-only">Jugador</span>
+          <select id="it-hist-jugador" className="select" style={{ height: 36, width: 220 }} value={jugador} onChange={(e) => setJugador(e.target.value)}>
+            {jugadores.length === 0 && <option value="">Sin jugadores</option>}
+            {jugadores.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
+          </select>
+        </label>
+      </div>
+      {error && <p className="notice notice-error" style={{ margin: 0 }}>{error}</p>}
+      {!lista ? <p className="small muted" style={{ margin: 0 }}>Cargando…</p> : lista.length === 0 ? (
+        <p className="small muted" style={{ margin: 0 }}>Todavía no registró este ejercicio.</p>
+      ) : (
+        <div className="table-wrap">
+          <table className="tbl" style={{ fontSize: 13 }}>
+            <thead><tr><th>Fecha</th><th>Serie</th><th>C · coach</th><th>A · atleta</th></tr></thead>
+            <tbody>
+              {lista.flatMap((r) => {
+                const n = Math.max(r.prescrito.length, r.hecho.length, 1);
+                return Array.from({ length: n }, (_, i) => {
+                  const c = fmt(r.prescrito[i]); const a = fmt(r.hecho[i]);
+                  return (
+                    <tr key={`${r.fecha}-${i}`} style={{ borderTop: i === 0 ? '1px solid var(--line)' : undefined }}>
+                      <td>{i === 0 ? `${r.fecha.slice(8, 10)}/${r.fecha.slice(5, 7)}${r.completado ? '' : ' (sin completar)'}` : ''}</td>
+                      <td>{i + 1}</td>
+                      <td>{c}</td>
+                      <td style={{ color: a !== c ? '#C2410C' : undefined, fontWeight: a !== c ? 600 : undefined }}>{a}</td>
+                    </tr>
+                  );
+                });
+              })}
+            </tbody>
+          </table>
+          <p className="xs muted" style={{ margin: '6px 0 0' }}>Kg × reps. En naranja, lo que el jugador cambió respecto de lo prescrito.</p>
+        </div>
+      )}
+    </section>
   );
 }

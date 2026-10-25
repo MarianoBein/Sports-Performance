@@ -292,7 +292,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
 
   return (
     <div className="stack" style={{ gap: 14 }}>
-      <p className="notice notice-warn wb-aviso-movil" style={{ margin: 0 }}>El armado de los planes se hace desde el ordenador. En el móvil vas a ver el entrenamiento de cada jugador.</p>
+      <p className="notice notice-warn wb-aviso-movil" style={{ margin: 0 }}>El armado de los planes se hace desde el ordenador. En el móvil, mirá el entreno de cada jugador en la pestaña «Jugadores».</p>
 
       <div className="wb-escritorio stack" style={{ gap: 14 }}>
         <div className="row" style={{ gap: 10 }}>
@@ -456,6 +456,8 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
           dia={`${etiquetaDia(edicion.fecha)}${etiquetaMD(edicion.fecha, partidosIso) ? ` · ${etiquetaMD(edicion.fecha, partidosIso)}` : ''} · ${nombrePlan(clave)}`}
           item={edicion.item}
           biblioteca={biblioteca}
+          jugadores={jugadores}
+          jugadorInicial={clave.startsWith('persona:') ? clave.slice(8) : ''}
           onBibliotecaCambio={onBibliotecaCambio}
           onCerrar={() => setEdicion(null)}
           onGuardar={(it) => guardarEnDia(edicion, it)}
