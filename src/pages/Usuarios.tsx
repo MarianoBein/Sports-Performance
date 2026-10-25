@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase, mensajeError } from '../lib/supabase';
 import { useSesion, type Rol } from '../lib/sesion';
+import Dialogo from '../components/Dialogo';
 import { ESTILO_NIVEL, MODULOS, NIVELES, permisosEfectivos, type Nivel, type Permisos } from '../lib/permisos';
 
 type Persona = {
@@ -22,26 +23,6 @@ function areaDe(rol?: Rol): (typeof AREAS)[number] {
 const COLORES = ['#DCE7FF', '#DDF3E4', '#FDE2E2', '#E9E1FF', '#FFF0D6'];
 const iniciales = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join('');
 const fecha = (iso: string) => new Date(iso).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-
-function Dialogo({ titulo, onCerrar, children, pie, ancho = 640 }: { titulo: string; onCerrar: () => void; children: ReactNode; pie?: ReactNode; ancho?: number }) {
-  useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') onCerrar(); };
-    window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
-  }, [onCerrar]);
-  return (
-    <div className="overlay" onMouseDown={(e) => { if (e.target === e.currentTarget) onCerrar(); }}>
-      <section className="dialog" role="dialog" aria-modal="true" aria-label={titulo} style={{ maxWidth: ancho }}>
-        <div className="dialog-head">
-          <h2 className="display">{titulo}</h2>
-          <button type="button" className="close" aria-label="Cerrar" onClick={onCerrar}>×</button>
-        </div>
-        <div className="dialog-body">{children}</div>
-        {pie && <div className="dialog-foot">{pie}</div>}
-      </section>
-    </div>
-  );
-}
 
 function EditorPermisos({ valor, onCambio }: { valor: Permisos; onCambio: (p: Permisos) => void }) {
   return (

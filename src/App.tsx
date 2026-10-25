@@ -5,7 +5,7 @@ import Layout from './components/Layout';
 import Entrar from './pages/Entrar';
 import Alta from './pages/Alta';
 import Inicio from './pages/Inicio';
-import Proximamente from './pages/Proximamente';
+import WorkoutBuilder from './pages/WorkoutBuilder';
 import Usuarios from './pages/Usuarios';
 import Plataforma from './pages/Plataforma';
 import Calendario from './pages/Calendario';
@@ -34,7 +34,7 @@ export default function App() {
       <Route path="/" element={<Protegida><Inicio /></Protegida>} />
       <Route path="/calendario" element={<Protegida modulo="calendario"><Calendario /></Protegida>} />
       <Route path="/calendario/exportar" element={<Protegida modulo="calendario"><ExportarSemana /></Protegida>} />
-      <Route path="/workout-builder" element={<Protegida modulo="workout_builder"><Proximamente titulo="Workout Builder" /></Protegida>} />
+      <Route path="/workout-builder" element={<Protegida modulo="workout_builder"><WorkoutBuilder /></Protegida>} />
       <Route path="/sports-science" element={<Protegida modulo="sports_science"><SportsScience /></Protegida>} />
       <Route path="/wellness" element={<Protegida><Wellness /></Protegida>} />
       <Route path="/rpe" element={<Protegida><Rpe /></Protegida>} />
