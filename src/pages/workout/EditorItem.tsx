@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import Dialogo from '../../components/Dialogo';
 import { supabase, mensajeError } from '../../lib/supabase';
-import { BLOQUES_BASE, CATEGORIAS, nuevoId, normalizar, type Ejercicio, type Item, type Serie } from '../../lib/workout';
+import { CATEGORIAS, nuevoId, normalizar, type Ejercicio, type Item, type Serie } from '../../lib/workout';
 
 const leerKg = (t: string): number | null => {
   const v = t.trim().replace(',', '.');
@@ -16,10 +16,9 @@ function ajustarDetalle(detalle: Serie[], series: number, reps: string): Serie[]
   return out;
 }
 
-export default function EditorItem({ dia, item, bloquesDia, biblioteca, onCerrar, onGuardar, onBibliotecaCambio }: {
+export default function EditorItem({ dia, item, biblioteca, onCerrar, onGuardar, onBibliotecaCambio }: {
   dia: string;
   item: Item | null;
-  bloquesDia: string[];
   biblioteca: Ejercicio[];
   onCerrar: () => void;
   onGuardar: (it: Item) => void;
@@ -29,9 +28,6 @@ export default function EditorItem({ dia, item, bloquesDia, biblioteca, onCerrar
   const [elegido, setElegido] = useState<{ id: string | null; nombre: string } | null>(item ? { id: item.ejercicio_id, nombre: item.nombre } : null);
   const [abierto, setAbierto] = useState(!item);
   const [tipo, setTipo] = useState('Todos');
-  const bloques = useMemo(() => [...new Set([...BLOQUES_BASE, ...bloquesDia, ...(item ? [item.bloque] : [])])], [bloquesDia, item]);
-  const [bloque, setBloque] = useState(item?.bloque ?? bloquesDia[bloquesDia.length - 1] ?? 'Bloque principal');
-  const [bloqueNuevo, setBloqueNuevo] = useState<string | null>(null);
   const [series, setSeries] = useState(item?.series ?? 3);
   const [reps, setReps] = useState(item?.reps ?? '');
   const [cadaLado, setCadaLado] = useState(item?.cada_lado ?? false);
@@ -76,8 +72,6 @@ export default function EditorItem({ dia, item, bloquesDia, biblioteca, onCerrar
   function guardar() {
     setError('');
     if (!elegido) { setError('Elegí un ejercicio de la lista.'); return; }
-    const b = (bloqueNuevo ?? bloque).trim();
-    if (!b) { setError('Poné un nombre al bloque.'); return; }
     let descanso: number | null = null;
     if (conDescanso) {
       const m = Number(min || 0); const s = Number(seg || 0);
@@ -86,7 +80,7 @@ export default function EditorItem({ dia, item, bloquesDia, biblioteca, onCerrar
     }
     const det = conCarga ? filas.map((f, i) => ({ reps: f.reps.trim(), kg: leerKg(kgTexto[i] ?? '') })) : [];
     onGuardar({
-      id: item?.id ?? nuevoId(), bloque: b, ejercicio_id: elegido.id, nombre: elegido.nombre, series, reps: reps.trim(),
+      id: item?.id ?? nuevoId(), tipo: 'ejercicio', bloque: item?.bloque ?? 'Bloque principal', ejercicio_id: elegido.id, nombre: elegido.nombre, series, reps: reps.trim(),
       cada_lado: cadaLado, con_carga: conCarga, detalle: det, descanso_seg: descanso, nota: conNota ? nota.trim() : '',
     });
   }
@@ -135,20 +129,6 @@ export default function EditorItem({ dia, item, bloquesDia, biblioteca, onCerrar
             </select>
           </label>
         </div>
-
-        <label className="field"><span>Bloque</span>
-          {bloqueNuevo === null ? (
-            <select id="it-bloque" className="select" value={bloque} onChange={(e) => { if (e.target.value === '__nuevo') setBloqueNuevo(''); else setBloque(e.target.value); }}>
-              {bloques.map((b) => <option key={b} value={b}>{b}</option>)}
-              <option value="__nuevo">+ Nuevo bloque…</option>
-            </select>
-          ) : (
-            <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
-              <input id="it-bloque-nuevo" className="input" autoFocus maxLength={60} value={bloqueNuevo} placeholder="Ej.: Pliometría" onChange={(e) => setBloqueNuevo(e.target.value)} />
-              <button type="button" className="btn btn-ghost" onClick={() => setBloqueNuevo(null)}>Cancelar</button>
-            </div>
-          )}
-        </label>
 
         <div className="row" style={{ gap: 16, alignItems: 'flex-end' }}>
           <div className="field"><span>Series</span>

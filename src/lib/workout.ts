@@ -72,6 +72,7 @@ export type Destino = { tipo: 'equipo'; ref?: null } | { tipo: 'grupo'; ref: str
 export type Serie = { reps: string; kg: number | null };
 export type Item = {
   id: string;
+  tipo: 'ejercicio' | 'break';   // «break» = session break: un título; lo de abajo le pertenece
   bloque: string;
   ejercicio_id: string | null;
   nombre: string;
@@ -85,7 +86,7 @@ export type Item = {
 };
 export type Sesion = { id: string; fecha: string; destinos: Destino[]; items: Item[] };
 
-export const BLOQUES_BASE = ['Activación', 'Bloque principal', 'Accesorios'];
+export const BREAKS_SUGERIDOS = ['Activación', 'Bloque principal', 'Accesorios'];
 
 // Clave para reconocer «el mismo plan» (mismos destinatarios), calculada siempre en la app.
 export function claveDestinos(d: Destino[]): string {
@@ -103,10 +104,11 @@ export function nuevoId(): string {
 export function itemDesdeDb(r: Record<string, unknown>): Item {
   return {
     id: r.id as string,
+    tipo: r.tipo === 'break' ? 'break' : 'ejercicio',
     bloque: (r.bloque as string) || 'Bloque principal',
     ejercicio_id: (r.ejercicio_id as string) ?? null,
     nombre: r.nombre as string,
-    series: Number(r.series) || 1,
+    series: Number(r.series) || (r.tipo === 'break' ? 0 : 1),
     reps: (r.reps as string) ?? '',
     cada_lado: !!r.cada_lado,
     con_carga: !!r.con_carga,

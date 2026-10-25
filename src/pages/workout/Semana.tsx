@@ -3,16 +3,17 @@ import { supabase, mensajeError } from '../../lib/supabase';
 import { useSesion } from '../../lib/sesion';
 import { DIAS_CORTOS, MESES, cargarActividades, hora, iso, lunesDe, sumarDias, hoyIso, desdeIso } from '../../lib/calendario';
 import {
-  claveDestinos, esquema, etiquetaMD, itemDesdeDb, nuevoId, tiempoTexto,
+  BREAKS_SUGERIDOS, claveDestinos, esquema, etiquetaMD, itemDesdeDb, nuevoId, tiempoTexto,
   type Destino, type Ejercicio, type Item, type Sesion,
 } from '../../lib/workout';
 import EditorItem from './EditorItem';
+import Dialogo from '../../components/Dialogo';
 
 type Plan = Record<string, Item[]>;
 type Jugador = { id: string; nombre: string };
 type Grupo = { id: string; nombre: string };
 type Partido = { fecha: string; hora: string | null; rival: string | null; fuera: boolean };
-type Edicion = { fecha: string; item: Item | null };
+type Edicion = { fecha: string; item: Item | null; tipo: 'ejercicio' | 'break' };
 
 const EQUIPO: Destino = { tipo: 'equipo' };
 const accent = 'var(--accent)';
@@ -63,7 +64,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     const desde = dias[0]; const hasta = dias[6];
     const [s, acts] = await Promise.all([
       supabase.from('sesiones')
-        .select('id,fecha,destinos,sesion_items(id,orden,bloque,ejercicio_id,nombre,series,reps,cada_lado,con_carga,detalle,descanso_seg,nota,eliminado_en)')
+        .select('id,fecha,destinos,sesion_items(id,orden,tipo,bloque,ejercicio_id,nombre,series,reps,cada_lado,con_carga,detalle,descanso_seg,nota,eliminado_en)')
         .gte('fecha', desde).lte('fecha', hasta),
       cargarActividades(iso(sumarDias(lunes, -7)), iso(sumarDias(lunes, 13))).catch(() => []),
     ]);
@@ -170,9 +171,8 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     const p = sinIds(plan, ids);
     const destino = [...(p[dia] ?? [])];
     let pos = antesDe ? destino.findIndex((i) => i.id === antesDe) : -1;
-    const bloque = pos >= 0 ? destino[pos].bloque : null;
     if (pos < 0) pos = destino.length;
-    destino.splice(pos, 0, ...its.map((it) => (bloque ? { ...it, bloque } : it)));
+    destino.splice(pos, 0, ...its);
     aplicar({ ...p, [dia]: destino }, () => { setSel(ids); setDiaActivo(dia); });
   };
 
@@ -211,6 +211,13 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const incluye = useCallback((ds: Destino[], j: string) => ds.some((d) =>
     d.tipo === 'equipo' || (d.tipo === 'persona' && d.ref === j) || (d.tipo === 'grupo' && miembros.some((m) => m.grupo_id === d.ref && m.perfil_id === j))), [miembros]);
 
+  function guardarEnDia(ed: Edicion, it: Item) {
+    const lista = plan[ed.fecha] ?? [];
+    const nueva = ed.item ? lista.map((x) => (x.id === it.id ? it : x)) : [...lista, it];
+    aplicar({ ...plan, [ed.fecha]: nueva }, () => setSel([it.id]));
+    setEdicion(null);
+  }
+
   if (!perfil) return null;
   const hoy = hoyIso();
   const fin = sumarDias(lunes, 6);
@@ -221,16 +228,16 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const etiquetaDia = (d: string) => `${DIAS_CORTOS[(desdeIso(d).getDay() + 6) % 7]} ${desdeIso(d).getDate()}`;
   const muestra = (modo: string | undefined, d: string, tiene: boolean) => modo === 'todos' || (modo === 'con_actividad' && (tiene || conActividad.has(d)));
 
-  // Agrupa los ejercicios de un día por bloque, en el orden en que aparecen.
-  const bloquesDe = (its: Item[]) => {
-    const out: { nombre: string; items: Item[] }[] = [];
+  // Cada session break abre un tramo; los ejercicios de abajo le pertenecen hasta el siguiente.
+  const tramosDe = (its: Item[]) => {
+    const out: { brk: Item | null; items: Item[] }[] = [];
     for (const it of its) {
-      let b = out[out.length - 1];
-      if (!b || b.nombre !== it.bloque) { b = { nombre: it.bloque, items: [] }; out.push(b); }
-      b.items.push(it);
+      if (it.tipo === 'break') out.push({ brk: it, items: [] });
+      else { if (!out.length) out.push({ brk: null, items: [] }); out[out.length - 1].items.push(it); }
     }
     return out;
   };
+  const nombresBreak = [...new Set([...BREAKS_SUGERIDOS, ...Object.values(plan).flat().filter((i) => i.tipo === 'break').map((i) => i.nombre)])];
 
   const clicItem = (e: MouseEvent, it: Item, d: string) => {
     e.stopPropagation();
@@ -367,32 +374,51 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
 
                   {propios ? propios.map((s) => (
                     <div key={s.id} style={{ background: 'var(--card)', borderRadius: 10, overflow: 'hidden' }}>
-                      <div className="xs" style={{ padding: '6px 10px', fontWeight: 600, color: '#3F444D', display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+                      <div className="xs" style={{ padding: '6px 10px', fontWeight: 600, color: '#3F444D', display: 'flex', justifyContent: 'space-between', gap: 6, background: '#F6F5F2' }}>
                         <span style={{ overflowWrap: 'anywhere' }}>{textoPlan(s.destinos)}</span>
                         <button type="button" className="xs" style={{ border: 0, background: 'transparent', color: accent, fontWeight: 600, padding: 0 }}
                           onClick={(e) => { e.stopPropagation(); cambiarDestinos(s.destinos); }}>Editar</button>
                       </div>
-                      {s.items.map((it) => (
+                      {s.items.map((it) => it.tipo === 'break' ? (
+                        <div key={it.id} className="xs" style={{ borderTop: '1px solid #F1EFEA', padding: '6px 10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', color: '#3F444D', overflowWrap: 'anywhere' }}>{it.nombre}</div>
+                      ) : (
                         <div key={it.id} style={{ borderTop: '1px solid #F1EFEA', padding: '7px 10px' }}>
                           <div style={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{it.nombre}</div>
                           <div className="xs muted">{esquema(it)}</div>
                         </div>
                       ))}
                     </div>
-                  )) : bloquesDe(its).map((b, bi) => (
-                    <div key={`${b.nombre}-${bi}`} style={{ background: 'var(--card)', borderRadius: 10, overflow: 'hidden' }}>
-                      <div className="xs" style={{ padding: '6px 10px', fontWeight: 700, color: '#3F444D', textTransform: 'uppercase', letterSpacing: '.03em' }}>{b.nombre} ({b.items.length})</div>
-                      {b.items.map((it) => {
-                        const on = sel.includes(it.id);
+                  )) : tramosDe(its).map((t, ti) => (
+                    <div key={t.brk?.id ?? `inicio-${ti}`} style={{ background: 'var(--card)', borderRadius: 10, overflow: 'hidden' }}>
+                      {t.brk && (() => {
+                        const it = t.brk; const on = sel.includes(it.id);
                         return (
-                          <button key={it.id} type="button" draggable aria-pressed={on}
+                          <button type="button" draggable aria-pressed={on} aria-label={`Session break: ${it.nombre}`}
                             onClick={(e) => clicItem(e, it, d)}
-                            onDoubleClick={(e) => { e.stopPropagation(); setEdicion({ fecha: d, item: it }); }}
+                            onDoubleClick={(e) => { e.stopPropagation(); setEdicion({ fecha: d, item: it, tipo: 'break' }); }}
                             onDragStart={(e) => empezarArrastre(e, it)}
                             onDragOver={(e) => { if (!partido) { e.preventDefault(); e.stopPropagation(); if (soltarEn !== d) setSoltarEn(d); } }}
                             onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (!arrastre.includes(it.id)) mover(arrastre, d, it.id); setArrastre([]); setSoltarEn(null); }}
                             style={{
-                              width: '100%', border: 0, borderTop: '1px solid #F1EFEA', padding: '8px 10px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
+                              width: '100%', border: 0, padding: '7px 10px', textAlign: 'left', cursor: 'grab', fontSize: 12, fontWeight: 700,
+                              textTransform: 'uppercase', letterSpacing: '.03em', color: on ? '#16181D' : '#3F444D', overflowWrap: 'anywhere',
+                              background: on ? '#FDECEE' : '#F6F5F2', boxShadow: on ? `inset 3px 0 0 ${accent}` : undefined,
+                            }}>
+                            {it.nombre} <span style={{ fontWeight: 500, color: 'var(--muted)' }}>({t.items.length})</span>
+                          </button>
+                        );
+                      })()}
+                      {t.items.map((it, ii) => {
+                        const on = sel.includes(it.id);
+                        return (
+                          <button key={it.id} type="button" draggable aria-pressed={on}
+                            onClick={(e) => clicItem(e, it, d)}
+                            onDoubleClick={(e) => { e.stopPropagation(); setEdicion({ fecha: d, item: it, tipo: 'ejercicio' }); }}
+                            onDragStart={(e) => empezarArrastre(e, it)}
+                            onDragOver={(e) => { if (!partido) { e.preventDefault(); e.stopPropagation(); if (soltarEn !== d) setSoltarEn(d); } }}
+                            onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (!arrastre.includes(it.id)) mover(arrastre, d, it.id); setArrastre([]); setSoltarEn(null); }}
+                            style={{
+                              width: '100%', border: 0, borderTop: t.brk || ii ? '1px solid #F1EFEA' : 0, padding: '8px 10px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2,
                               textAlign: 'left', cursor: 'grab', background: on ? '#FDECEE' : 'var(--card)', boxShadow: on ? `inset 3px 0 0 ${accent}` : undefined,
                             }}>
                             <span style={{ fontSize: 13, fontWeight: 600, overflowWrap: 'anywhere' }}>{it.nombre}</span>
@@ -406,8 +432,12 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                   ))}
 
                   {!verJugador && !partido && (
-                    <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'stretch', border: '1.5px dashed #C9C6BF' }}
-                      onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null }); }}>+ Añadir ejercicio</button>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ border: '1.5px dashed #C9C6BF' }}
+                        onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'ejercicio' }); }}>+ Añadir ejercicio</button>
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ height: 30, fontSize: 12, color: 'var(--muted)' }}
+                        onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'break' }); }}>+ Session break</button>
+                    </div>
                   )}
 
                   <span style={{ flex: 1 }} />
@@ -429,28 +459,49 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
         )}
       </div>
 
-      {edicion && (
+      {edicion && edicion.tipo === 'ejercicio' && (
         <EditorItem
           dia={`${etiquetaDia(edicion.fecha)}${etiquetaMD(edicion.fecha, partidosIso) ? ` · ${etiquetaMD(edicion.fecha, partidosIso)}` : ''} · ${textoPlan(destinos)}`}
           item={edicion.item}
-          bloquesDia={[...new Set((plan[edicion.fecha] ?? []).map((i) => i.bloque))]}
           biblioteca={biblioteca}
           onBibliotecaCambio={onBibliotecaCambio}
           onCerrar={() => setEdicion(null)}
-          onGuardar={(it) => {
-            const lista = plan[edicion.fecha] ?? [];
-            let nueva: Item[];
-            if (edicion.item) nueva = lista.map((x) => (x.id === it.id ? it : x));
-            else {
-              // Se añade al final de su bloque (o al final del día si el bloque es nuevo).
-              const ult = lista.map((x) => x.bloque).lastIndexOf(it.bloque);
-              nueva = ult >= 0 ? [...lista.slice(0, ult + 1), it, ...lista.slice(ult + 1)] : [...lista, it];
-            }
-            aplicar({ ...plan, [edicion.fecha]: nueva }, () => setSel([it.id]));
-            setEdicion(null);
-          }}
+          onGuardar={(it) => guardarEnDia(edicion, it)}
         />
       )}
+      {edicion && edicion.tipo === 'break' && (
+        <EditorBreak item={edicion.item} sugeridos={nombresBreak} onCerrar={() => setEdicion(null)} onGuardar={(it) => guardarEnDia(edicion, it)} />
+      )}
     </div>
+  );
+}
+
+function EditorBreak({ item, sugeridos, onCerrar, onGuardar }: { item: Item | null; sugeridos: string[]; onCerrar: () => void; onGuardar: (it: Item) => void }) {
+  const [nombre, setNombre] = useState(item?.nombre ?? '');
+  const ok = nombre.trim().length > 0;
+  const guardar = () => {
+    if (!ok) return;
+    onGuardar({
+      id: item?.id ?? nuevoId(), tipo: 'break', bloque: 'Bloque principal', ejercicio_id: null, nombre: nombre.trim(), series: 0, reps: '',
+      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: '',
+    });
+  };
+  return (
+    <Dialogo titulo={item ? 'Editar session break' : 'Session break'} onCerrar={onCerrar} ancho={480}
+      pie={<>
+        <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
+        <button type="button" className="btn btn-primary" disabled={!ok} onClick={guardar}>{item ? 'Guardar' : 'Añadir'}</button>
+      </>}>
+      <div className="stack" style={{ gap: 10 }}>
+        <label className="field"><span>Nombre</span>
+          <input id="brk-nombre" className="input" autoFocus maxLength={120} value={nombre} placeholder="Bloque principal, Main block, Accessories…"
+            onChange={(e) => setNombre(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); guardar(); } }} />
+        </label>
+        <div className="row" style={{ gap: 6 }}>
+          {sugeridos.map((n) => <button key={n} type="button" className="chip" aria-pressed={nombre === n} onClick={() => setNombre(n)}>{n}</button>)}
+        </div>
+        <p className="xs muted" style={{ margin: 0 }}>Todo lo que quede debajo pertenece a este break, hasta el siguiente.</p>
+      </div>
+    </Dialogo>
   );
 }
