@@ -38,6 +38,7 @@ export default function Ajustes() {
   const [wModo, setWModo] = useState(perfil?.club.wellness_modo ?? 'todos');
   const [rModo, setRModo] = useState(perfil?.club.rpe_modo ?? 'todos');
   const [retraso, setRetraso] = useState(perfil?.club.rpe_retraso_min ?? 30);
+  const [horaAviso, setHoraAviso] = useState((perfil?.club.hora_aviso_wellness ?? '09:00').slice(0, 5));
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
 
   if (!perfil) return null;
@@ -120,9 +121,14 @@ export default function Ajustes() {
             </select>
           </label>
         </div>
+        <label className="field" style={{ maxWidth: 260 }}><span>Aviso de wellness al celular</span>
+          <input id="aj-hora-aviso" type="time" className="input" value={horaAviso} onChange={(e) => setHoraAviso(e.target.value)} />
+        </label>
+        <p className="xs muted" style={{ margin: 0 }}>A esa hora le llega «Contestá tu wellness» a quien todavía no respondió. El aviso del RPE sale solo cuando se habilita (los minutos de arriba después de la última actividad).</p>
         <p className="xs muted" style={{ margin: 0 }}>«Días con actividad»: cuando el jugador tiene una actividad deportiva ese día. Un día concreto (por ejemplo, el de partido) se puede marcar como «no aplica» desde el Sports Science Hub.</p>
         <button type="button" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={async () => {
           const { error } = await supabase.rpc('actualizar_recurrencia', { p_wellness: wModo, p_rpe: rModo, p_retraso: retraso });
+          if (!error) { const r2 = await supabase.rpc('actualizar_hora_aviso', { p_hora: horaAviso }); if (r2.error) { setAviso({ ok: false, texto: mensajeError(r2.error) }); return; } }
           if (error) setAviso({ ok: false, texto: mensajeError(error) }); else { await recargar(); setAviso({ ok: true, texto: 'Guardado.' }); }
         }}>Guardar</button>
       </section>

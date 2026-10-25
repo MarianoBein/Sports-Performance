@@ -1,0 +1,19 @@
+# Vigilancia: cada 30 minutos comprueba que la app y la base de datos respondan.
+# Si algo falla, GitHub le manda un email al dueño del repositorio.
+# (De paso, el uso frecuente evita que Supabase pause la base del plan gratis.)
+name: Salud de la app
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+env:
+  APP_URL: https://sports-performance-5.vercel.app
+jobs:
+  comprobar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: La web abre
+        run: curl -fsS --max-time 30 --retry 2 --retry-delay 20 "$APP_URL/" -o /dev/null
+      - name: La base de datos responde
+        run: curl -fsS --max-time 30 --retry 2 --retry-delay 20 "$APP_URL/api/salud"

@@ -1,3 +1,4 @@
+import ConfigAvisos from '../components/ConfigAvisos';
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { supabase, mensajeError } from '../lib/supabase';
 
@@ -89,6 +90,8 @@ export default function Plataforma() {
       </div>
 
       {error && <p className="notice notice-error" role="alert">{error}</p>}
+
+      <ConfigAvisos />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, marginBottom: 16 }}>
         {[['Organizaciones', orgs.length], ['Activas', activas.length], ['En prueba o regalo', orgs.filter((o) => o.plan !== 'pago').length], ['Personas en total', personas]].map(([l, v]) => (

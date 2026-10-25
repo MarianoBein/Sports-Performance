@@ -1,0 +1,24 @@
+# Cada lunes: instala todo de cero, busca vulnerabilidades conocidas en las librerías
+# y comprueba que la app compile. Si algo falla, GitHub avisa por email.
+name: Revisión semanal de seguridad
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Vulnerabilidades graves en librerías
+        run: npm audit --omit=dev --audit-level=high
+      - name: La app compila
+        run: npm run build

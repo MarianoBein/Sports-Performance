@@ -1,3 +1,4 @@
+import TarjetaAvisos from '../components/Avisos';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSesion } from '../lib/sesion';
@@ -59,6 +60,8 @@ export default function Inicio() {
       </div>
 
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+
+      {perfil.rol.es_jugador && <TarjetaAvisos compacta />}
 
       {estado?.wellness_toca && !estado.wellness_hecho && (
         <Link to="/wellness" className="card" style={{ padding: 16, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, boxShadow: 'inset 4px 0 0 #1E9E4A, 0 1px 2px rgba(22,24,29,.06)' }}>
