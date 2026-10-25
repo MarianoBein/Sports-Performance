@@ -65,3 +65,86 @@ export function miniatura(url: string | null): string | null {
 export function normalizar(t: string): string {
   return t.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9°%]+/g, ' ').trim();
 }
+
+// ---------- Sesiones (armado de la semana) ----------
+
+export type Destino = { tipo: 'equipo'; ref?: null } | { tipo: 'grupo'; ref: string } | { tipo: 'persona'; ref: string };
+export type Serie = { reps: string; kg: number | null };
+export type Item = {
+  id: string;
+  bloque: string;
+  ejercicio_id: string | null;
+  nombre: string;
+  series: number;
+  reps: string;
+  cada_lado: boolean;
+  con_carga: boolean;
+  detalle: Serie[];
+  descanso_seg: number | null;
+  nota: string;
+};
+export type Sesion = { id: string; fecha: string; destinos: Destino[]; items: Item[] };
+
+export const BLOQUES_BASE = ['Activación', 'Bloque principal', 'Accesorios'];
+
+// Clave para reconocer «el mismo plan» (mismos destinatarios), calculada siempre en la app.
+export function claveDestinos(d: Destino[]): string {
+  return [...new Set(d.map((x) => (x.tipo === 'equipo' ? 'equipo' : `${x.tipo}:${x.ref}`)))].sort().join(',');
+}
+
+export function nuevoId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
+export function itemDesdeDb(r: Record<string, unknown>): Item {
+  return {
+    id: r.id as string,
+    bloque: (r.bloque as string) || 'Bloque principal',
+    ejercicio_id: (r.ejercicio_id as string) ?? null,
+    nombre: r.nombre as string,
+    series: Number(r.series) || 1,
+    reps: (r.reps as string) ?? '',
+    cada_lado: !!r.cada_lado,
+    con_carga: !!r.con_carga,
+    detalle: Array.isArray(r.detalle) ? (r.detalle as Serie[]) : [],
+    descanso_seg: r.descanso_seg == null ? null : Number(r.descanso_seg),
+    nota: (r.nota as string) ?? '',
+  };
+}
+
+const kgTexto = (kg: number | null) => (kg == null ? '—' : String(kg).replace('.', ','));
+
+// «4 × 8 c/lado · 60-60-60-60»
+export function esquema(it: Item): string {
+  const repsVariables = it.con_carga && it.detalle.length && new Set(it.detalle.map((s) => s.reps)).size > 1;
+  const reps = repsVariables ? it.detalle.map((s) => s.reps || '—').join('-') : (it.reps || it.detalle[0]?.reps || '—');
+  let t = `${it.series} × ${reps}${it.cada_lado ? ' c/lado' : ''}`;
+  if (it.con_carga && it.detalle.some((s) => s.kg != null)) t += ` · ${it.detalle.map((s) => kgTexto(s.kg)).join('-')}`;
+  return t;
+}
+
+export function tiempoTexto(seg: number | null): string {
+  if (seg == null) return '';
+  return `${Math.floor(seg / 60)}:${String(seg % 60).padStart(2, '0')}`;
+}
+
+// Etiqueta MD respecto de los partidos: MD, MD+1/MD+2 tras el partido, MD-n antes del siguiente.
+export function etiquetaMD(fecha: string, partidos: string[]): string | null {
+  const t = Date.UTC(+fecha.slice(0, 4), +fecha.slice(5, 7) - 1, +fecha.slice(8, 10));
+  const dias = (f: string) => Math.round((Date.UTC(+f.slice(0, 4), +f.slice(5, 7) - 1, +f.slice(8, 10)) - t) / 86400000);
+  let antes: number | null = null; let despues: number | null = null;
+  for (const p of partidos) {
+    const d = dias(p);
+    if (d === 0) return 'MD';
+    if (d < 0 && (antes == null || -d < antes)) antes = -d;
+    if (d > 0 && (despues == null || d < despues)) despues = d;
+  }
+  if (antes != null && antes <= 2) return `MD+${antes}`;
+  if (despues != null) return `MD-${despues}`;
+  if (antes != null) return `MD+${antes}`;
+  return null;
+}

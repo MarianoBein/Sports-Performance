@@ -3,6 +3,7 @@ import { supabase, mensajeError } from '../lib/supabase';
 import { useSesion } from '../lib/sesion';
 import Dialogo from '../components/Dialogo';
 import { CATEGORIAS, IMPLEMENTOS, miniatura, normalizar, tonoCategoria, type Ejercicio } from '../lib/workout';
+import Semana from './workout/Semana';
 
 type Tab = 'semana' | 'biblioteca';
 const POR_PAGINA = 60;
@@ -239,7 +240,16 @@ export default function WorkoutBuilder() {
   const { perfil, permisos } = useSesion();
   const editable = permisos?.workout_builder.nivel === 'editar';
   const esJugador = !!perfil?.rol.es_jugador && !perfil.es_admin;
-  const [tab, setTab] = useState<Tab>(esJugador ? 'semana' : 'biblioteca');
+  const [tab, setTab] = useState<Tab>(esJugador || !editable ? 'biblioteca' : 'semana');
+  const [biblioteca, setBiblioteca] = useState<Ejercicio[]>([]);
+
+  useEffect(() => {
+    if (!editable) return;
+    supabase.from('ejercicios').select('id,nombre,categoria,implemento,lateralidad,contraccion,video_url,consignas,eliminado_en')
+      .is('eliminado_en', null).order('nombre')
+      .then(({ data }) => setBiblioteca((data as Ejercicio[]) ?? []));
+  }, [editable, tab]);
+
   if (!perfil) return null;
 
   return (
@@ -249,19 +259,20 @@ export default function WorkoutBuilder() {
         <h1 className="display" style={{ fontSize: 38 }}>Workout Builder</h1>
       </div>
 
-      {!esJugador && (
-        <div className="tabs" role="tablist" aria-label="Secciones">
-          <button type="button" role="tab" aria-selected={tab === 'semana'} onClick={() => setTab('semana')}>Semana</button>
-          <button type="button" role="tab" aria-selected={tab === 'biblioteca'} onClick={() => setTab('biblioteca')}>Biblioteca</button>
-        </div>
-      )}
-
-      {tab === 'semana' && (
+      {esJugador ? (
         <div className="card" style={{ padding: 20 }}>
-          <p style={{ margin: 0 }}>{esJugador ? 'Acá vas a ver tus entrenamientos. Llega en la próxima versión.' : 'El armado de la semana llega en la próxima versión. Mientras, ya podés revisar y editar la biblioteca.'}</p>
+          <p style={{ margin: 0 }}>Acá vas a ver tus entrenamientos. Llega en la próxima versión.</p>
         </div>
+      ) : (
+        <>
+          <div className="tabs" role="tablist" aria-label="Secciones">
+            {editable && <button type="button" role="tab" aria-selected={tab === 'semana'} onClick={() => setTab('semana')}>Semana</button>}
+            <button type="button" role="tab" aria-selected={tab === 'biblioteca'} onClick={() => setTab('biblioteca')}>Biblioteca</button>
+          </div>
+          {tab === 'semana' && editable && <Semana biblioteca={biblioteca} onBibliotecaCambio={(e) => setBiblioteca((b) => [...b, e].sort((x, y) => x.nombre.localeCompare(y.nombre)))} />}
+          {tab === 'biblioteca' && <Biblioteca editable={editable} />}
+        </>
       )}
-      {tab === 'biblioteca' && !esJugador && <Biblioteca editable={editable} />}
     </div>
   );
 }

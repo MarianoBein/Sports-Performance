@@ -122,3 +122,10 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
   .ej-fila { flex-wrap: wrap; }
   .ej-acciones { width: 100%; justify-content: flex-end; }
 }
+
+/* ---------- Workout Builder: el armado es solo para ordenador ---------- */
+@media (max-width: 900px) {
+  .wb-escritorio { display: none !important; }
+  .wb-aviso-movil { display: block !important; }
+}
+.wb-aviso-movil { display: none; }
