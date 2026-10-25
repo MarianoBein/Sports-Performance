@@ -1,5 +1,7 @@
 # Revisa cada semana si alguna librería tiene una versión nueva o un problema de seguridad
 # y abre una propuesta de actualización (pull request) en GitHub para aprobar.
+# Solo versiones menores y arreglos: los saltos grandes (por ejemplo React 18 → 19)
+# rompen cosas y se hacen a mano, todos juntos.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -8,6 +10,9 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       menores:
         update-types: [minor, patch]

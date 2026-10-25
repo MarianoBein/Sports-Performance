@@ -1,1 +1,4 @@
-{ "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }] }
+{
+  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }],
+  "git": { "deploymentEnabled": { "dependabot/**": false } }
+}
