@@ -72,7 +72,7 @@ export type Destino = { tipo: 'equipo'; ref?: null } | { tipo: 'grupo'; ref: str
 export type Serie = { reps: string; kg: number | null };
 export type Item = {
   id: string;
-  tipo: 'ejercicio' | 'break';   // «break» = session break: un título; lo de abajo le pertenece
+  tipo: 'ejercicio' | 'break' | 'nota';   // «break» = session break (título); «nota» = recordatorio libre
   bloque: string;
   ejercicio_id: string | null;
   nombre: string;
@@ -106,7 +106,7 @@ export function nuevoId(): string {
 export function itemDesdeDb(r: Record<string, unknown>): Item {
   return {
     id: r.id as string,
-    tipo: r.tipo === 'break' ? 'break' : 'ejercicio',
+    tipo: r.tipo === 'break' ? 'break' : r.tipo === 'nota' ? 'nota' : 'ejercicio',
     bloque: (r.bloque as string) || 'Bloque principal',
     ejercicio_id: (r.ejercicio_id as string) ?? null,
     nombre: r.nombre as string,

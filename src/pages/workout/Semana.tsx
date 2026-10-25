@@ -16,7 +16,8 @@ import Dialogo from '../../components/Dialogo';
 type Jugador = { id: string; nombre: string };
 type Grupo = { id: string; nombre: string };
 type Partido = { fecha: string; hora: string | null; rival: string | null; fuera: boolean };
-type Edicion = { fecha: string; item: Item | null; tipo: 'ejercicio' | 'break' };
+type Edicion = { fecha: string; item: Item | null; tipo: 'ejercicio' | 'break' | 'nota' };
+type Excepcion = { fecha: string; cuestionario: 'wellness' | 'rpe'; perfil_id: string | null; aplica: boolean };
 type Vista = 'semana' | 'mes';
 
 const accent = 'var(--accent)';
@@ -39,6 +40,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const [miembros, setMiembros] = useState<{ grupo_id: string; perfil_id: string }[]>([]);
   const [mapa, setMapa] = useState<Mapa | null>(null);
   const [partidos, setPartidos] = useState<Partido[]>([]);
+  const [excepciones, setExcepciones] = useState<Excepcion[]>([]);
   const [conActividad, setConActividad] = useState<Set<string>>(new Set());
   const [pasado, setPasado] = useState<Mapa[]>([]);
   const [sel, setSel] = useState<string[]>([]);
@@ -92,6 +94,8 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     setMapa(m); setPasado([]); setSel([]);
     setPartidos(acts.filter((a) => a.es_partido).map((a) => ({ fecha: a.fecha, hora: a.hora_inicio, rival: a.rival, fuera: a.fuera })));
     setConActividad(new Set(acts.filter((a) => a.tipo === 'deportiva').map((a) => a.fecha)));
+    const ex = await supabase.from('cuestionario_excepciones').select('fecha,cuestionario,perfil_id,aplica').gte('fecha', desde).lte('fecha', hasta);
+    setExcepciones((ex.data as Excepcion[]) ?? []);
   }, [dias]);
   useEffect(() => { cargar(); }, [cargar]);
 
@@ -168,12 +172,11 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   // ---------- Vista efectiva del plan elegido ----------
   const efectivoDe = (f: string) => (mapa ? efectivo(clave, f, mapa, ctx) : { items: [] as Item[], desde: clave, propio: true });
   const visibles = (f: string) => efectivoDe(f).items;
-  const esPartido = (d: string) => partidos.some((p) => p.fecha === d);
 
   // ---------- Acciones ----------
   const copiar = () => { const its = dias.flatMap(visibles).filter((it) => sel.includes(it.id)); if (its.length) setClip(its); };
   const pegar = (dia = diaActivo) => {
-    if (!clip.length || !dias.includes(dia) || esPartido(dia)) return;
+    if (!clip.length || !dias.includes(dia)) return;
     const frescos = clip.map((it) => ({ ...it, id: nuevoId(), origen_id: null, modificado: false, detalle: it.detalle.map((s) => ({ ...s })) }));
     editar((get, set) => set(dia, [...get(dia), ...frescos]));
     setSel(frescos.map((f) => f.id)); setDiaActivo(dia);
@@ -191,7 +194,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     setSel([]);
   };
   const mover = (ids: string[], dia: string, antesDe?: string) => {
-    if (!ids.length || !dias.includes(dia) || esPartido(dia)) return;
+    if (!ids.length || !dias.includes(dia)) return;
     const origenes = dias.filter((d) => visibles(d).some((it) => ids.includes(it.id)));
     let movidos: string[] = [];
     editar((get, set) => {
@@ -250,7 +253,6 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const partidosIso = partidos.map((p) => p.fecha);
   const etiquetaDia = (d: string) => `${DIAS_CORTOS[(desdeIso(d).getDay() + 6) % 7]} ${desdeIso(d).getDate()}`;
   const compacto = vista === 'mes';
-  const muestra = (modo: string | undefined, d: string, tiene: boolean) => !compacto && (modo === 'todos' || (modo === 'con_actividad' && (tiene || conActividad.has(d))));
   const ini = desdeIso(dias[0]);
   const fin = desdeIso(dias[dias.length - 1]);
   const titulo = compacto
@@ -270,13 +272,60 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     return out;
   };
 
+  // ---------- Wellness y RPE del día para este plan (equipo, grupo o jugador) ----------
+  const modoDe = (c: 'wellness' | 'rpe') => (c === 'wellness' ? perfil.club.wellness_modo : perfil.club.rpe_modo) ?? 'todos';
+  const exc = (c: string, d: string, p: string | null) => excepciones.find((x) => x.cuestionario === c && x.fecha === d && x.perfil_id === p)?.aplica;
+  const aplicaJugador = (c: 'wellness' | 'rpe', d: string, j: string, tiene: boolean) => {
+    const propio = exc(c, d, j); if (propio !== undefined) return propio;
+    const eq = exc(c, d, null); if (eq !== undefined) return eq;
+    const m = modoDe(c); return m === 'todos' || (m === 'con_actividad' && (tiene || conActividad.has(d)));
+  };
+  const miembrosDe = (g: string) => miembros.filter((m) => m.grupo_id === g).map((m) => m.perfil_id);
+  const estadoCuest = (c: 'wellness' | 'rpe', d: string, tiene: boolean): boolean | 'mixto' => {
+    if (clave === 'equipo') {
+      const eq = exc(c, d, null); if (eq !== undefined) return eq;
+      const m = modoDe(c); return m === 'todos' || (m === 'con_actividad' && (tiene || conActividad.has(d)));
+    }
+    const [t, ref] = clave.split(':');
+    const js = t === 'persona' ? [ref] : miembrosDe(ref);
+    if (!js.length) return false;
+    const vals = js.map((j) => aplicaJugador(c, d, j, tiene));
+    return vals.every((v) => v) ? true : vals.every((v) => !v) ? false : 'mixto';
+  };
+  async function cambiarCuest(c: 'wellness' | 'rpe', d: string, valor: boolean) {
+    const [t, ref] = clave.split(':');
+    const objetivos: (string | null)[] = clave === 'equipo' ? [null] : t === 'persona' ? [ref] : miembrosDe(ref);
+    for (const p of objetivos) {
+      const { error } = await supabase.rpc('marcar_aplica', { p_fecha: d, p_cuestionario: c, p_aplica: valor, p_perfil: p });
+      if (error) { setError(mensajeError(error)); break; }
+    }
+    const ex = await supabase.from('cuestionario_excepciones').select('fecha,cuestionario,perfil_id,aplica').gte('fecha', dias[0]).lte('fecha', dias[dias.length - 1]);
+    setExcepciones((ex.data as Excepcion[]) ?? []);
+  }
+  const Cuestionario = ({ c, d, tiene }: { c: 'wellness' | 'rpe'; d: string; tiene: boolean }) => {
+    const est = estadoCuest(c, d, tiene);
+    const nombre = c === 'wellness' ? 'Wellness' : `RPE${perfil.club.rpe_retraso_min != null ? ` · +${perfil.club.rpe_retraso_min} min` : ''}`;
+    const texto = est === true ? nombre : est === 'mixto' ? `${nombre} · algunos` : `${c === 'wellness' ? 'Wellness' : 'RPE'} · no aplica`;
+    return (
+      <button type="button" className="xs" title={`${est === true ? 'Tocá para que no aplique' : 'Tocá para que aplique'} este día en «${nombrePlan(clave)}».${c === 'rpe' ? ' La espera del RPE se cambia en Ajustes.' : ''}`}
+        onClick={(e) => { e.stopPropagation(); void cambiarCuest(c, d, est !== true); }}
+        style={{
+          border: `1px dashed ${est === true ? (c === 'wellness' ? '#1E9E4A' : '#1D5BD8') : '#C9C6BF'}`, borderRadius: 8, padding: '5px 8px', textAlign: 'left', cursor: 'pointer',
+          background: est === true ? (c === 'wellness' ? '#EAF7EF' : '#EEF3FF') : 'transparent',
+          color: est === true ? (c === 'wellness' ? '#1D5C32' : '#1E3A8A') : 'var(--muted)', textDecoration: est === false ? 'line-through' : undefined,
+        }}>
+        {texto}
+      </button>
+    );
+  };
+
   const clicItem = (e: MouseEvent, it: Item, d: string) => {
     e.stopPropagation();
     const multi = e.metaKey || e.ctrlKey || e.shiftKey;
     setSel(multi ? (sel.includes(it.id) ? sel.filter((x) => x !== it.id) : [...sel, it.id]) : [it.id]);
     setDiaActivo(d);
   };
-  const props = (it: Item, d: string, partido: boolean) => ({
+  const props = (it: Item, d: string) => ({
     draggable: true,
     'aria-pressed': sel.includes(it.id),
     onClick: (e: MouseEvent) => clicItem(e, it, d),
@@ -286,7 +335,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
       try { e.dataTransfer.setData('text/plain', ids.join(',')); e.dataTransfer.effectAllowed = 'move'; } catch { /* nada */ }
       setArrastre(ids); setSel(ids);
     },
-    onDragOver: (e: DragEvent) => { if (!partido) { e.preventDefault(); e.stopPropagation(); if (soltarEn !== d) setSoltarEn(d); } },
+    onDragOver: (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); if (soltarEn !== d) setSoltarEn(d); },
     onDrop: (e: DragEvent) => { e.preventDefault(); e.stopPropagation(); if (!arrastre.includes(it.id)) mover(arrastre, d, it.id); setArrastre([]); setSoltarEn(null); },
   });
 
@@ -348,7 +397,6 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
             )}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 8 }}>
               {dias.map((d) => {
-                const partido = partidos.find((p) => p.fecha === d);
                 const md = etiquetaMD(d, partidosIso);
                 const esHoy = d === hoy;
                 const ef = efectivoDe(d);
@@ -358,7 +406,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                 return (
                   <section key={d} aria-label={`${etiquetaDia(d)}${md ? `, ${md}` : ''}`}
                     onClick={() => { setDiaActivo(d); setSel([]); }}
-                    onDragOver={(e) => { if (partido) return; e.preventDefault(); if (soltarEn !== d) setSoltarEn(d); }}
+                    onDragOver={(e) => { e.preventDefault(); if (soltarEn !== d) setSoltarEn(d); }}
                     onDragLeave={() => { if (soltarEn === d) setSoltarEn(null); }}
                     onDrop={(e) => { e.preventDefault(); mover(arrastre, d); setArrastre([]); setSoltarEn(null); }}
                     style={{
@@ -371,12 +419,6 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                       {md && <span className="pill" style={md === 'MD' ? { background: accent, color: '#fff' } : { background: 'var(--card)', color: '#3F444D' }}>{md}</span>}
                     </header>
 
-                    {partido && (
-                      <div className="xs" style={{ background: '#FDE3E6', color: '#8F0E1F', borderRadius: 8, padding: '5px 8px', fontWeight: 600 }}>
-                        Partido{partido.hora ? ` · ${hora(partido.hora)}` : ''}{partido.rival ? ` · ${partido.fuera ? 'en' : 'vs'} ${partido.rival}` : ''}
-                      </div>
-                    )}
-
                     {clave !== 'equipo' && (ef.propio || heredado) && (
                       <div className="xs" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, color: 'var(--muted)', flexWrap: 'wrap' }}>
                         {ef.propio
@@ -387,26 +429,34 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                       </div>
                     )}
 
-                    {muestra(perfil.club.wellness_modo, d, its.length > 0) && (
-                      <div className="xs muted" style={{ border: '1px dashed #C9C6BF', borderRadius: 8, padding: '5px 8px' }}>Wellness</div>
-                    )}
+                    {!compacto && <Cuestionario c="wellness" d={d} tiene={its.length > 0} />}
 
                     {tramosDe(its).map((t, ti) => (
                       <div key={t.brk?.id ?? `inicio-${ti}`} style={{ background: 'var(--card)', borderRadius: 10, overflow: 'hidden', border: heredado ? '1px dashed #C9C6BF' : '1px solid transparent' }}>
                         {t.brk && (
-                          <button type="button" {...props(t.brk, d, !!partido)} aria-label={`Session break: ${t.brk.nombre}`}
+                          <button type="button" {...props(t.brk, d)} aria-label={`Session break: ${t.brk.nombre}`}
                             style={{
                               width: '100%', border: 0, padding: compacto ? '5px 8px' : '7px 10px', textAlign: 'left', cursor: 'grab', fontSize: compacto ? 11 : 12, fontWeight: 700,
-                              textTransform: 'uppercase', letterSpacing: '.03em', color: '#3F444D', overflowWrap: 'anywhere',
-                              background: sel.includes(t.brk.id) ? '#FDECEE' : '#F6F5F2', boxShadow: sel.includes(t.brk.id) ? `inset 3px 0 0 ${accent}` : undefined,
+                              textTransform: 'uppercase', letterSpacing: '.03em', color: '#fff', overflowWrap: 'anywhere',
+                              background: '#2B2E36', boxShadow: sel.includes(t.brk.id) ? `inset 0 0 0 2px ${accent}, inset 6px 0 0 ${accent}` : undefined,
                             }}>
-                            {t.brk.nombre} <span style={{ fontWeight: 500, color: 'var(--muted)' }}>({t.items.length})</span>
+                            {t.brk.nombre} <span style={{ fontWeight: 500, opacity: 0.7 }}>({t.items.filter((x) => x.tipo === 'ejercicio').length})</span>
                           </button>
                         )}
                         {t.items.map((it, ii) => {
                           const on = sel.includes(it.id);
+                          if (it.tipo === 'nota') return (
+                            <button key={it.id} type="button" {...props(it, d)} aria-label={`Nota: ${it.nota || it.nombre}`}
+                              style={{
+                                width: '100%', border: 0, borderTop: t.brk || ii ? '1px solid #F1EFEA' : 0, padding: compacto ? '5px 8px' : '8px 10px', textAlign: 'left', cursor: 'grab',
+                                background: '#FFF2C2', color: '#4A3600', fontSize: compacto ? 11 : 12, overflowWrap: 'anywhere', whiteSpace: 'pre-wrap',
+                                boxShadow: on ? `inset 0 0 0 2px ${accent}, inset 6px 0 0 ${accent}` : 'inset 3px 0 0 #E5A800',
+                              }}>
+                              {it.nota || it.nombre}
+                            </button>
+                          );
                           return (
-                            <button key={it.id} type="button" {...props(it, d, !!partido)}
+                            <button key={it.id} type="button" {...props(it, d)}
                               style={{
                                 width: '100%', border: 0, borderTop: t.brk || ii ? '1px solid #F1EFEA' : 0, padding: compacto ? '5px 8px' : '8px 10px',
                                 display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, textAlign: 'left', cursor: 'grab',
@@ -424,21 +474,19 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                       </div>
                     ))}
 
-                    {!partido && (
+                    {(
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <button type="button" className="btn btn-sm btn-ghost" style={{ border: '1.5px dashed #C9C6BF', height: compacto ? 28 : undefined, fontSize: compacto ? 12 : undefined }}
                           onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'ejercicio' }); }}>+ Ejercicio</button>
                         <button type="button" className="btn btn-sm btn-ghost" style={{ height: 26, fontSize: 12, color: 'var(--muted)' }}
                           onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'break' }); }}>+ Session break</button>
+                        <button type="button" className="btn btn-sm btn-ghost" style={{ height: 26, fontSize: 12, color: '#6B4E00' }}
+                          onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'nota' }); }}>+ Nota</button>
                       </div>
                     )}
 
                     <span style={{ flex: 1 }} />
-                    {muestra(perfil.club.rpe_modo, d, its.length > 0) && (
-                      <div className="xs muted" style={{ border: '1px dashed #C9C6BF', borderRadius: 8, padding: '5px 8px' }}>
-                        RPE{perfil.club.rpe_retraso_min != null ? ` · +${perfil.club.rpe_retraso_min} min` : ''}
-                      </div>
-                    )}
+                    {!compacto && <Cuestionario c="rpe" d={d} tiene={its.length > 0} />}
                   </section>
                 );
               })}
@@ -462,6 +510,9 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
           onCerrar={() => setEdicion(null)}
           onGuardar={(it) => guardarEnDia(edicion, it)}
         />
+      )}
+      {edicion && edicion.tipo === 'nota' && (
+        <EditorNota item={edicion.item} onCerrar={() => setEdicion(null)} onGuardar={(it) => guardarEnDia(edicion, it)} />
       )}
       {edicion && edicion.tipo === 'break' && (
         <EditorBreak item={edicion.item} sugeridos={nombresBreak} onCerrar={() => setEdicion(null)} onGuardar={(it) => guardarEnDia(edicion, it)} />
@@ -543,6 +594,32 @@ function EditorBreak({ item, sugeridos, onCerrar, onGuardar }: { item: Item | nu
         </div>
         <p className="xs muted" style={{ margin: 0 }}>Todo lo que quede debajo pertenece a este break, hasta el siguiente.</p>
       </div>
+    </Dialogo>
+  );
+}
+
+function EditorNota({ item, onCerrar, onGuardar }: { item: Item | null; onCerrar: () => void; onGuardar: (it: Item) => void }) {
+  const [texto, setTexto] = useState(item?.nota || item?.nombre || '');
+  const ok = texto.trim().length > 0;
+  const guardar = () => {
+    if (!ok) return;
+    const t = texto.trim();
+    onGuardar({
+      id: item?.id ?? nuevoId(), tipo: 'nota', bloque: 'Bloque principal', ejercicio_id: null, nombre: t.slice(0, 120), series: 0, reps: '',
+      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: t, origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false,
+    });
+  };
+  return (
+    <Dialogo titulo={item ? 'Editar nota' : 'Nota'} onCerrar={onCerrar} ancho={480}
+      pie={<>
+        <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
+        <button type="button" className="btn btn-primary" disabled={!ok} onClick={guardar}>{item ? 'Guardar' : 'Añadir'}</button>
+      </>}>
+      <label className="field"><span>Texto</span>
+        <textarea id="nota-texto" className="input" autoFocus rows={4} maxLength={1000} value={texto} placeholder="Ej.: acordate de traer las bandas; hoy movilidad extra para los que jugaron más de 25 min."
+          onChange={(e) => setTexto(e.target.value)} style={{ height: 'auto', padding: '10px 12px', resize: 'vertical' }} />
+      </label>
+      <p className="xs muted" style={{ margin: '8px 0 0' }}>La ven los jugadores de este plan en su entreno del día.</p>
     </Dialogo>
   );
 }

@@ -6,7 +6,7 @@ import { esquema, idYoutube, tiempoTexto, type Item, type Serie } from '../../li
 import type { EstadoHoy } from '../../lib/wellness';
 
 type ItemEntreno = {
-  id: string; tipo: 'ejercicio' | 'break'; nombre: string; ejercicio_id: string | null; series: number | null; reps: string | null;
+  id: string; tipo: 'ejercicio' | 'break' | 'nota'; nombre: string; ejercicio_id: string | null; series: number | null; reps: string | null;
   cada_lado: boolean; detalle: Serie[]; descanso_seg: number | null; nota: string | null;
   video_url: string | null; consignas: string | null; hecho: Serie[] | null; completado_en: string | null;
 };
@@ -97,8 +97,12 @@ export default function Entreno({ perfilId, soloLectura = false }: { perfilId?: 
             <span className="small muted">{hechos} de {ejercicios.length} completados</span>
           </div>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            {(items ?? []).map((it, i) => it.tipo === 'break' ? (
-              <div key={it.id} className="xs" style={{ padding: '8px 14px', background: '#F6F5F2', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: '#3F444D', borderTop: i ? '1px solid var(--line-soft)' : 0 }}>{it.nombre}</div>
+            {(items ?? []).map((it, i) => it.tipo === 'nota' ? (
+              <div key={it.id} className="small" style={{ padding: '10px 14px', background: '#FFF2C2', color: '#4A3600', borderTop: i ? '1px solid var(--line-soft)' : 0, whiteSpace: 'pre-wrap', boxShadow: 'inset 4px 0 0 #E5A800' }}>
+                <span className="xs" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'block' }}>Nota del PF</span>{it.nota || it.nombre}
+              </div>
+            ) : it.tipo === 'break' ? (
+              <div key={it.id} className="xs" style={{ padding: '8px 14px', background: '#2B2E36', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: '#fff', borderTop: i ? '1px solid var(--line-soft)' : 0 }}>{it.nombre}</div>
             ) : (
               <button key={it.id} type="button" onClick={() => setAbierto(ejercicios.findIndex((e) => e.id === it.id))}
                 style={{ width: '100%', border: 0, borderTop: i ? '1px solid var(--line-soft)' : 0, background: 'var(--card)', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', minHeight: 60 }}>
