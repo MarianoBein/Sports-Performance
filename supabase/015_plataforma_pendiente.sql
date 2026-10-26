@@ -31,11 +31,9 @@ create table if not exists public.duenos_plataforma (
 alter table public.duenos_plataforma enable row level security;  -- sin políticas: nadie la lee desde la app
 
 insert into public.duenos_plataforma (email) values ('marianobein1993@gmail.com') on conflict do nothing;
--- Además, el email con el que Mariano entra a la app (por si es otro).
-insert into public.duenos_plataforma (email)
-select u.email from auth.users u join public.perfiles p on p.id = u.id
-where p.nombre ilike 'Mariano%' and p.es_admin
-on conflict do nothing;
+-- (Se quitó el alta automática de «cualquier admin llamado Mariano…»: ver el 016.)
+-- OJO: si ya corriste el 016, no vuelvas a correr este archivo (volvería a
+-- comparar al dueño por email).
 
 create or replace function public.soy_dueno() returns boolean
 language sql stable security definer set search_path = public as $$
