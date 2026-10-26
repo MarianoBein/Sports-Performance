@@ -11,9 +11,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Web
-        run: curl -sS -o /dev/null -w "web: %{http_code}\n" "$APP_URL/"
+        run: |
+          curl -sS -o /dev/null -w "web: %{http_code}\n" "$APP_URL/"
       - name: Base de datos
-        run: curl -sS -w "\nsalud: %{http_code}\n" "$APP_URL/api/salud" || true
+        run: |
+          curl -sS -w "\nsalud: %{http_code}\n" "$APP_URL/api/salud" || true
       - name: Clave pública de avisos (VAPID_PUBLIC_KEY)
         run: |
           r=$(curl -sS "$APP_URL/api/avisos")
