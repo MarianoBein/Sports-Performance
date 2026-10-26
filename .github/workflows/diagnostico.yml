@@ -1,5 +1,5 @@
 # Diagnóstico a pedido: comprueba que la app publicada tenga todo configurado
-# (sin mostrar ninguna clave secreta).
+# (sin mostrar ninguna clave secreta). Los resultados quedan como avisos del job.
 name: Diagnóstico de la app
 on:
   workflow_dispatch:
@@ -10,22 +10,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Web
+      - name: Comprobar
         run: |
-          curl -sS -o /dev/null -w "web: %{http_code}\n" "$APP_URL/"
-      - name: Base de datos
-        run: |
-          curl -sS -w "\nsalud: %{http_code}\n" "$APP_URL/api/salud" || true
-      - name: Clave pública de avisos (VAPID_PUBLIC_KEY)
-        run: |
-          r=$(curl -sS "$APP_URL/api/avisos")
-          echo "$r" | grep -q '"publica":"B' && echo "VAPID_PUBLIC_KEY: OK" || echo "VAPID_PUBLIC_KEY: FALTA ($r)"
-      - name: Clave del cron (CRON_SECRET) y demás variables
-        run: |
-          r=$(curl -sS -X POST -H 'x-cron-secret: prueba-incorrecta' "$APP_URL/api/avisos" -w ' %{http_code}')
-          echo "con clave incorrecta: $r (esperado 401)"
-      - name: Restablecer contraseña (SUPABASE_SECRET_KEY)
-        run: |
-          r=$(curl -sS -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer x' -d '{"perfil_id":"00000000-0000-0000-0000-000000000000"}' "$APP_URL/api/restablecer-clave" -w ' %{http_code}')
-          echo "$r"
-          echo "$r" | grep -q 'Falta configurar SUPABASE_SECRET_KEY' && echo "SUPABASE_SECRET_KEY: FALTA" || echo "SUPABASE_SECRET_KEY: OK (no dice que falte)"
+          web=$(curl -sS -o /dev/null -w "%{http_code}" "$APP_URL/")
+          echo "::notice title=Web::código $web"
+          salud=$(curl -sS "$APP_URL/api/salud" -w " %{http_code}")
+          echo "::notice title=Base de datos::$salud"
+          av=$(curl -sS "$APP_URL/api/avisos")
+          if echo "$av" | grep -q '"publica":"B'; then echo "::notice title=VAPID_PUBLIC_KEY::OK"; else echo "::notice title=VAPID_PUBLIC_KEY::FALTA ($av)"; fi
+          cron=$(curl -sS -X POST -H 'x-cron-secret: prueba-incorrecta' "$APP_URL/api/avisos" -w " %{http_code}")
+          echo "::notice title=Avisos con clave incorrecta::$cron (esperado 401)"
+          rc=$(curl -sS -X POST -H 'Content-Type: application/json' -H 'Authorization: Bearer x' -d '{"perfil_id":"00000000-0000-0000-0000-000000000000"}' "$APP_URL/api/restablecer-clave" -w " %{http_code}")
+          echo "::notice title=Restablecer contraseña::$rc"
