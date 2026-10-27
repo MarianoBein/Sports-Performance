@@ -3,7 +3,7 @@ import { supabase, mensajeError } from '../../lib/supabase';
 import { useSesion } from '../../lib/sesion';
 import { DIAS_CORTOS, MESES, cargarActividades, hora, iso, lunesDe, sumarDias, hoyIso, desdeIso } from '../../lib/calendario';
 import {
-  BREAKS_SUGERIDOS, claveDestinos, esquema, etiquetaMD, itemDesdeDb, nuevoId, tiempoTexto,
+  BREAKS_SUGERIDOS, claveDestinos, esquema, textoPregunta, etiquetaMD, itemDesdeDb, nuevoId, tiempoTexto,
   type Destino, type Ejercicio, type Item,
 } from '../../lib/workout';
 import {
@@ -16,7 +16,7 @@ import Dialogo from '../../components/Dialogo';
 type Jugador = { id: string; nombre: string };
 type Grupo = { id: string; nombre: string };
 type Partido = { fecha: string; hora: string | null; rival: string | null; fuera: boolean };
-type Edicion = { fecha: string; item: Item | null; tipo: 'ejercicio' | 'break' | 'nota' };
+type Edicion = { fecha: string; item: Item | null; tipo: 'ejercicio' | 'break' | 'nota' | 'pregunta' };
 type Excepcion = { fecha: string; cuestionario: 'wellness' | 'rpe'; perfil_id: string | null; aplica: boolean };
 type Vista = 'semana' | 'mes';
 
@@ -45,6 +45,10 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const [pasado, setPasado] = useState<Mapa[]>([]);
   const [sel, setSel] = useState<string[]>([]);
   const [clip, setClip] = useState<Item[]>([]);
+  const [diasSel, setDiasSel] = useState<string[]>([]);
+  const [clipDias, setClipDias] = useState<{ offset: number; items: Item[] }[] | null>(null);
+  const [ultimoClip, setUltimoClip] = useState<'items' | 'dias'>('items');
+  const [aviso, setAviso] = useState('');
   const [diaActivo, setDiaActivo] = useState<string>(hoyIso());
   const [edicion, setEdicion] = useState<Edicion | null>(null);
   const [arrastre, setArrastre] = useState<string[]>([]);
@@ -79,7 +83,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     const desde = dias[0]; const hasta = dias[dias.length - 1];
     const [s, acts] = await Promise.all([
       supabase.from('sesiones')
-        .select('id,fecha,destinos,sesion_items(id,orden,tipo,bloque,ejercicio_id,nombre,series,reps,cada_lado,con_carga,detalle,descanso_seg,nota,origen_id,modificado,eliminado_en)')
+        .select('id,fecha,destinos,sesion_items(id,orden,tipo,bloque,ejercicio_id,nombre,series,reps,cada_lado,con_carga,detalle,descanso_seg,nota,origen_id,modificado,config,eliminado_en)')
         .gte('fecha', desde).lte('fecha', hasta),
       cargarActividades(iso(sumarDias(desdeIso(desde), -7)), iso(sumarDias(desdeIso(hasta), 7))).catch(() => []),
     ]);
@@ -174,12 +178,53 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const visibles = (f: string) => efectivoDe(f).items;
 
   // ---------- Acciones ----------
-  const copiar = () => { const its = dias.flatMap(visibles).filter((it) => sel.includes(it.id)); if (its.length) setClip(its); };
+  const fresco = (it: Item): Item => ({ ...it, id: nuevoId(), origen_id: null, modificado: false, detalle: it.detalle.map((s) => ({ ...s })), config: { ...(it.config ?? {}) } });
+  const copiar = () => {
+    const its = dias.flatMap(visibles).filter((it) => sel.includes(it.id));
+    if (its.length) { setClip(its); setUltimoClip('items'); setAviso(`Copiado: ${its.length} elemento${its.length > 1 ? 's' : ''}. Elegí un día y pegá con ⌘V.`); return; }
+    copiarDias();
+  };
   const pegar = (dia = diaActivo) => {
+    if (ultimoClip === 'dias' && clipDias) { pegarDias(dia); return; }
     if (!clip.length || !dias.includes(dia)) return;
-    const frescos = clip.map((it) => ({ ...it, id: nuevoId(), origen_id: null, modificado: false, detalle: it.detalle.map((s) => ({ ...s })) }));
+    const frescos = clip.map(fresco);
     editar((get, set) => set(dia, [...get(dia), ...frescos]));
     setSel(frescos.map((f) => f.id)); setDiaActivo(dia);
+  };
+  // Copiar días completos (uno o un rango, por ejemplo una semana) y pegarlos desde otro día.
+  const copiarDias = () => {
+    if (!diasSel.length) return;
+    const orden = [...diasSel].sort();
+    const base = desdeIso(orden[0]).getTime();
+    setClipDias(orden.map((f) => ({ offset: Math.round((desdeIso(f).getTime() - base) / 86400000), items: visibles(f) })));
+    setUltimoClip('dias');
+    setAviso(`Copiado${orden.length > 1 ? 's' : ''} ${orden.length} día${orden.length > 1 ? 's' : ''}. Tocá el día donde querés que empiece y pegá con ⌘V (o «Pegar acá»).`);
+    setDiasSel([]);
+  };
+  const pegarDias = (desde = diaActivo) => {
+    if (!clipDias) return;
+    const destinos = clipDias.map((c) => ({ f: iso(sumarDias(desdeIso(desde), c.offset)), items: c.items })).filter((c) => c.items.length);
+    const dentro = destinos.filter((c) => dias.includes(c.f));
+    if (!dentro.length) { setAviso('Esos días quedan fuera de la vista. Pasá a la semana o al mes donde querés pegar.'); return; }
+    editar((get, set) => { for (const c of dentro) set(c.f, [...get(c.f), ...c.items.map(fresco)]); });
+    const fuera = destinos.length - dentro.length;
+    setAviso(fuera ? `Pegado. ${fuera} día${fuera > 1 ? 's' : ''} quedaron fuera de la vista: avanzá y pegá de nuevo desde el día que corresponda.` : 'Pegado.');
+  };
+  const borrarDias = () => {
+    if (!diasSel.length) return;
+    const ds = [...diasSel];
+    editar((get, set) => { for (const d of ds) { get(d); set(d, []); } });
+    setDiasSel([]);
+  };
+  const clicDia = (e: MouseEvent, d: string) => {
+    e.stopPropagation();
+    setDiaActivo(d); setSel([]);
+    if (e.shiftKey && diasSel.length) {
+      const a = [...diasSel].sort()[0];
+      const [x, y] = a < d ? [a, d] : [d, a];
+      setDiasSel(dias.filter((f) => f >= x && f <= y));
+    } else if (e.metaKey || e.ctrlKey) setDiasSel(diasSel.includes(d) ? diasSel.filter((f) => f !== d) : [...diasSel, d]);
+    else setDiasSel(diasSel.length === 1 && diasSel[0] === d ? [] : [d]);
   };
   const deshacer = () => {
     if (!pasado.length || !mapa) return;
@@ -222,7 +267,8 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
         set(ed.fecha, lista.map((x) => (coincide(x, [prev.id]) ? { ...it, id: x.id, origen_id: x.origen_id, modificado: x.modificado } : x)));
       } else set(ed.fecha, [...lista, it]);
     });
-    setEdicion(null);
+    // Para ejercicios nuevos la ventana queda abierta para seguir agregando.
+    if (ed.item || ed.tipo !== 'ejercicio') setEdicion(null);
   }
 
   useEffect(() => {
@@ -234,7 +280,8 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
       else if (mod && k === 'v') { e.preventDefault(); pegar(); }
       else if (mod && k === 'z') { e.preventDefault(); deshacer(); }
       else if ((k === 'delete' || k === 'backspace') && sel.length) { e.preventDefault(); borrar(); }
-      else if (k === 'escape') setSel([]);
+      else if ((k === 'delete' || k === 'backspace') && diasSel.length) { e.preventDefault(); borrarDias(); }
+      else if (k === 'escape') { setSel([]); setDiasSel([]); }
     };
     window.addEventListener('keydown', tecla);
     return () => window.removeEventListener('keydown', tecla);
@@ -388,6 +435,27 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
           </p>
         )}
 
+        {(diasSel.length > 0 || (clipDias && ultimoClip === 'dias') || aviso) && (
+          <div className="row card" style={{ padding: '8px 12px', gap: 8, position: 'sticky', top: 0, zIndex: 3 }}>
+            {diasSel.length > 0 && (
+              <>
+                <strong className="small">{diasSel.length} día{diasSel.length > 1 ? 's' : ''} elegido{diasSel.length > 1 ? 's' : ''}</strong>
+                <button type="button" className="btn btn-sm btn-primary" onClick={copiarDias}>Copiar {diasSel.length > 1 ? 'días' : 'día'}</button>
+                <button type="button" className="btn btn-sm link-danger" onClick={borrarDias}>Vaciar</button>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => setDiasSel([])}>Cancelar</button>
+              </>
+            )}
+            {!diasSel.length && clipDias && ultimoClip === 'dias' && (
+              <>
+                <span className="small">{clipDias.length} día{clipDias.length > 1 ? 's' : ''} copiado{clipDias.length > 1 ? 's' : ''}.</span>
+                <button type="button" className="btn btn-sm btn-primary" onClick={() => pegarDias()}>Pegar desde {etiquetaDia(dias.includes(diaActivo) ? diaActivo : dias[0])}</button>
+                <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setClipDias(null); setUltimoClip('items'); setAviso(''); }}>Descartar</button>
+              </>
+            )}
+            {aviso && <span className="xs muted" style={{ flex: '1 1 260px' }}>{aviso}</span>}
+          </div>
+        )}
+
         {!mapa ? <p className="muted">Cargando…</p> : (
           <div className="stack" style={{ gap: 8 }}>
             {compacto && (
@@ -415,7 +483,12 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                       boxShadow: soltarEn === d || esHoy ? `inset 0 0 0 2px ${accent}` : diaActivo === d ? 'inset 0 0 0 1.5px #9A9DA4' : undefined,
                     }}>
                     <header className="row" style={{ justifyContent: 'space-between', gap: 4 }}>
-                      <strong style={{ fontSize: compacto ? 13 : 15 }}>{compacto ? desdeIso(d).getDate() : etiquetaDia(d)}</strong>
+                      <button type="button" aria-pressed={diasSel.includes(d)} title="Clic para elegir el día entero (Mayús para un rango) y copiarlo"
+                        onClick={(e) => clicDia(e, d)}
+                        style={{ border: 0, borderRadius: 8, padding: '2px 8px', margin: '-2px -4px', fontWeight: 700, fontSize: compacto ? 13 : 15, cursor: 'pointer',
+                          background: diasSel.includes(d) ? '#16181D' : 'transparent', color: diasSel.includes(d) ? '#fff' : 'inherit' }}>
+                        {compacto ? desdeIso(d).getDate() : etiquetaDia(d)}
+                      </button>
                       {md && <span className="pill" style={md === 'MD' ? { background: accent, color: '#fff' } : { background: 'var(--card)', color: '#3F444D' }}>{md}</span>}
                     </header>
 
@@ -445,6 +518,18 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                         )}
                         {t.items.map((it, ii) => {
                           const on = sel.includes(it.id);
+                          if (it.tipo === 'pregunta') return (
+                            <button key={it.id} type="button" {...props(it, d)} aria-label={`Cuestionario: ${it.nombre}`}
+                              style={{
+                                width: '100%', border: 0, borderTop: t.brk || ii ? '1px solid #F1EFEA' : 0, padding: compacto ? '5px 8px' : '8px 10px', textAlign: 'left', cursor: 'grab',
+                                background: '#EFE9FF', color: '#43307E', display: 'flex', flexDirection: 'column', gap: 2, overflowWrap: 'anywhere',
+                                boxShadow: on ? `inset 0 0 0 2px ${accent}, inset 6px 0 0 ${accent}` : 'inset 3px 0 0 #7C5CE0',
+                              }}>
+                              <span className="xs" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em' }}>Cuestionario</span>
+                              <span style={{ fontSize: compacto ? 12 : 13, fontWeight: 600 }}>{it.nombre}</span>
+                              {!compacto && <span className="xs">{textoPregunta(it.config)}</span>}
+                            </button>
+                          );
                           if (it.tipo === 'nota') return (
                             <button key={it.id} type="button" {...props(it, d)} aria-label={`Nota: ${it.nota || it.nombre}`}
                               style={{
@@ -482,6 +567,8 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                           onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'break' }); }}>+ Session break</button>
                         <button type="button" className="btn btn-sm btn-ghost" style={{ height: 26, fontSize: 12, color: '#6B4E00' }}
                           onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'nota' }); }}>+ Nota</button>
+                        <button type="button" className="btn btn-sm btn-ghost" style={{ height: 26, fontSize: 12, color: '#43307E' }}
+                          onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setEdicion({ fecha: d, item: null, tipo: 'pregunta' }); }}>+ Cuestionario</button>
                       </div>
                     )}
 
@@ -495,7 +582,8 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
         )}
 
         <p className="xs muted" style={{ margin: 0 }}>
-          Clic para elegir (⌘ o Mayús para varios) · doble clic para editar · ⌘C copiar · ⌘V pegar en el día marcado · ⌘Z deshacer · Supr borrar · arrastrá para mover o reordenar. Se guarda solo.
+          Clic para elegir (⌘ o Mayús para varios) · doble clic para editar · ⌘C copiar · ⌘V pegar en el día marcado · ⌘Z deshacer · Supr borrar · arrastrá para mover o reordenar.
+          Para copiar días enteros: clic en el nombre del día (Mayús + clic en otro para un rango, por ejemplo la semana) → ⌘C → tocá el día donde empieza → ⌘V. Se guarda solo.
         </p>
       </div>
 
@@ -510,6 +598,9 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
           onCerrar={() => setEdicion(null)}
           onGuardar={(it) => guardarEnDia(edicion, it)}
         />
+      )}
+      {edicion && edicion.tipo === 'pregunta' && (
+        <EditorPregunta item={edicion.item} onCerrar={() => setEdicion(null)} onGuardar={(it) => guardarEnDia(edicion, it)} />
       )}
       {edicion && edicion.tipo === 'nota' && (
         <EditorNota item={edicion.item} onCerrar={() => setEdicion(null)} onGuardar={(it) => guardarEnDia(edicion, it)} />
@@ -575,7 +666,7 @@ function EditorBreak({ item, sugeridos, onCerrar, onGuardar }: { item: Item | nu
     if (!ok) return;
     onGuardar({
       id: item?.id ?? nuevoId(), tipo: 'break', bloque: 'Bloque principal', ejercicio_id: null, nombre: nombre.trim(), series: 0, reps: '',
-      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: '', origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false,
+      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: '', origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false, config: {},
     });
   };
   return (
@@ -606,7 +697,7 @@ function EditorNota({ item, onCerrar, onGuardar }: { item: Item | null; onCerrar
     const t = texto.trim();
     onGuardar({
       id: item?.id ?? nuevoId(), tipo: 'nota', bloque: 'Bloque principal', ejercicio_id: null, nombre: t.slice(0, 120), series: 0, reps: '',
-      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: t, origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false,
+      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: t, origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false, config: {},
     });
   };
   return (
@@ -620,6 +711,74 @@ function EditorNota({ item, onCerrar, onGuardar }: { item: Item | null; onCerrar
           onChange={(e) => setTexto(e.target.value)} style={{ height: 'auto', padding: '10px 12px', resize: 'vertical' }} />
       </label>
       <p className="xs muted" style={{ margin: '8px 0 0' }}>La ven los jugadores de este plan en su entreno del día.</p>
+    </Dialogo>
+  );
+}
+
+function EditorPregunta({ item, onCerrar, onGuardar }: { item: Item | null; onCerrar: () => void; onGuardar: (it: Item) => void }) {
+  const [pregunta, setPregunta] = useState(item?.nombre ?? '');
+  const [formato, setFormato] = useState<'escala' | 'opciones' | 'texto'>(item?.config?.formato ?? 'escala');
+  const [min, setMin] = useState(String(item?.config?.min ?? 0));
+  const [max, setMax] = useState(String(item?.config?.max ?? 10));
+  const [opciones, setOpciones] = useState((item?.config?.opciones ?? ['Sí', 'No']).join('\n'));
+  const [error, setError] = useState('');
+  const sugerencias = ['¿Qué tan duro sentiste este ejercicio?', '¿Lo harías con más peso?', '¿Sentiste alguna molestia?'];
+  const guardar = () => {
+    setError('');
+    const p = pregunta.trim();
+    if (!p) { setError('Escribí la pregunta.'); return; }
+    const config: Item['config'] = { formato };
+    if (formato === 'escala') {
+      const a = Number(min); const b = Number(max);
+      if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b > 100 || a >= b) { setError('La escala va de un número entero a otro mayor (por ejemplo, 0 a 10).'); return; }
+      config.min = a; config.max = b;
+    }
+    if (formato === 'opciones') {
+      const ops = opciones.split('\n').map((o) => o.trim()).filter(Boolean).slice(0, 12);
+      if (ops.length < 2) { setError('Poné al menos dos opciones, una por renglón.'); return; }
+      config.opciones = ops;
+    }
+    onGuardar({
+      id: item?.id ?? nuevoId(), tipo: 'pregunta', bloque: 'Bloque principal', ejercicio_id: null, nombre: p.slice(0, 120), series: 0, reps: '',
+      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: '', origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false, config,
+    });
+  };
+  return (
+    <Dialogo titulo={item ? 'Editar cuestionario' : 'Cuestionario'} onCerrar={onCerrar} ancho={520}
+      pie={<>
+        <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
+        <button type="button" className="btn btn-primary" onClick={guardar}>{item ? 'Guardar' : 'Añadir'}</button>
+      </>}>
+      <div className="stack" style={{ gap: 12 }}>
+        <label className="field"><span>Pregunta</span>
+          <input id="preg-texto" className="input" autoFocus maxLength={120} value={pregunta} placeholder="Ej.: ¿Qué tan duro sentiste este ejercicio?" onChange={(e) => setPregunta(e.target.value)} />
+        </label>
+        <div className="row" style={{ gap: 6 }}>
+          {sugerencias.map((t) => <button key={t} type="button" className="chip" onClick={() => setPregunta(t)}>{t}</button>)}
+        </div>
+        <div className="field"><span>Cómo responde el jugador</span>
+          <div className="row" role="group" aria-label="Formato de respuesta" style={{ gap: 4 }}>
+            <button type="button" className="chip" aria-pressed={formato === 'escala'} onClick={() => setFormato('escala')}>Barra deslizante</button>
+            <button type="button" className="chip" aria-pressed={formato === 'opciones'} onClick={() => setFormato('opciones')}>Lista de opciones</button>
+            <button type="button" className="chip" aria-pressed={formato === 'texto'} onClick={() => setFormato('texto')}>Texto libre</button>
+          </div>
+        </div>
+        {formato === 'escala' && (
+          <div className="row" style={{ gap: 8 }}>
+            <span className="small">De</span>
+            <input className="input" style={{ width: 70, height: 38 }} inputMode="numeric" aria-label="Mínimo" value={min} onChange={(e) => setMin(e.target.value.replace(/\D/g, ''))} />
+            <span className="small">a</span>
+            <input className="input" style={{ width: 70, height: 38 }} inputMode="numeric" aria-label="Máximo" value={max} onChange={(e) => setMax(e.target.value.replace(/\D/g, ''))} />
+          </div>
+        )}
+        {formato === 'opciones' && (
+          <label className="field"><span>Opciones (una por renglón)</span>
+            <textarea id="preg-opciones" className="input" rows={4} value={opciones} onChange={(e) => setOpciones(e.target.value)} style={{ height: 'auto', padding: '10px 12px', resize: 'vertical' }} />
+          </label>
+        )}
+        {formato === 'texto' && <p className="xs muted" style={{ margin: 0 }}>El jugador escribe lo que quiera (hasta 500 caracteres).</p>}
+        {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+      </div>
     </Dialogo>
   );
 }

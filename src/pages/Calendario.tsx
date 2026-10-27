@@ -54,6 +54,13 @@ export default function Calendario() {
   const [form, setForm] = useState<{ actividad?: Actividad; fecha?: string } | null>(null);
   const [suscribir, setSuscribir] = useState(false);
   const [error, setError] = useState('');
+  // Selección múltiple: ⌘/Ctrl/Mayús + clic en actividades, o Mayús + clic en el número de un día (días enteros).
+  const [sel, setSel] = useState<string[]>([]);
+  const [clip, setClip] = useState<Actividad[]>([]);
+  const [diaHover, setDiaHover] = useState<string | null>(null);
+  const [diaAncla, setDiaAncla] = useState<string | null>(null);
+  const [confirmarBorrar, setConfirmarBorrar] = useState(false);
+  const [trabajando, setTrabajando] = useState('');
 
   const rango = useMemo(() => {
     if (vista === 'mes') {
@@ -105,6 +112,61 @@ export default function Calendario() {
       ? (() => { const a = lunesDe(ref), b = sumarDias(a, 6); return `${a.getDate()} ${a.getMonth() !== b.getMonth() ? MESES[a.getMonth()] + ' ' : ''}al ${b.getDate()} de ${MESES[b.getMonth()]}`; })()
       : fechaLarga(iso(ref));
 
+  const clicActividad = (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; stopPropagation: () => void }, a: Actividad) => {
+    e.stopPropagation();
+    if (puedeCrear && (e.metaKey || e.ctrlKey || e.shiftKey)) setSel(sel.includes(a.id) ? sel.filter((x) => x !== a.id) : [...sel, a.id]);
+    else if (sel.length) setSel(sel.includes(a.id) ? sel.filter((x) => x !== a.id) : [...sel, a.id]);
+    else setDetalle(a);
+  };
+  // Mayús + clic en el número de un día: elige todas sus actividades (y el rango hasta el último día elegido).
+  const elegirDias = (s: string) => {
+    const desde = diaAncla && diaAncla < s ? diaAncla : s;
+    const hasta = diaAncla && diaAncla > s ? diaAncla : s;
+    const ids = visibles.filter((a) => a.fecha >= desde && a.fecha <= hasta).map((a) => a.id);
+    setSel([...new Set([...sel, ...ids])]); setDiaAncla(s);
+  };
+  const copiarSel = () => { const xs = acts.filter((a) => sel.includes(a.id)); if (xs.length) { setClip(xs); setSel([]); } };
+  async function pegarEn(dia: string) {
+    if (!clip.length) return;
+    const base = [...clip].map((a) => a.fecha).sort()[0];
+    const corrimiento = Math.round((desdeIso(dia).getTime() - desdeIso(base).getTime()) / 86400000);
+    setTrabajando(`Pegando ${clip.length}…`); setError('');
+    let fallas = 0;
+    for (const a of clip) {
+      const { error } = await supabase.rpc('guardar_actividad', {
+        p_id: null,
+        p_datos: { nombre: a.nombre, tipo: a.tipo, fecha: iso(sumarDias(desdeIso(a.fecha), corrimiento)), todo_el_dia: a.todo_el_dia, hora_inicio: a.hora_inicio, hora_fin: a.hora_fin, lugar: a.lugar, direccion: a.direccion, es_partido: a.es_partido, rival: a.rival, fuera: a.fuera },
+        p_destinos: a.destinos,
+      });
+      if (error) fallas++;
+    }
+    setTrabajando('');
+    if (fallas) setError(`No se pudieron pegar ${fallas} actividad${fallas > 1 ? 'es' : ''}.`);
+    await cargar();
+  }
+  async function borrarSel() {
+    const xs = acts.filter((a) => sel.includes(a.id));
+    setTrabajando(`Borrando ${xs.length}…`); setError('');
+    let fallas = 0;
+    for (const a of xs) { const { error } = await supabase.rpc('eliminar_actividad', { p_id: a.id }); if (error) fallas++; }
+    setTrabajando(''); setConfirmarBorrar(false); setSel([]);
+    if (fallas) setError(`${fallas} actividad${fallas > 1 ? 'es' : ''} no se pudieron borrar (solo podés borrar las que podés editar).`);
+    await cargar();
+  }
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent) => {
+      const t = (e.target as HTMLElement | null)?.tagName ?? '';
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t) || form || detalle || !puedeCrear) return;
+      const k = e.key.toLowerCase(); const mod = e.metaKey || e.ctrlKey;
+      if (mod && k === 'c' && sel.length) { e.preventDefault(); copiarSel(); }
+      else if (mod && k === 'v' && clip.length) { e.preventDefault(); void pegarEn(diaHover ?? (vista === 'dia' ? iso(ref) : hoy)); }
+      else if ((k === 'delete' || k === 'backspace') && sel.length) { e.preventDefault(); setConfirmarBorrar(true); }
+      else if (k === 'escape') { setSel([]); setConfirmarBorrar(false); setDiaAncla(null); }
+    };
+    window.addEventListener('keydown', tecla);
+    return () => window.removeEventListener('keydown', tecla);
+  });
+
   const pendienteMio = (a: Actividad) => a.confirmaciones.some((c) => c.perfil_id === perfil?.id && c.estado === 'pendiente');
   const hayPendientes = (a: Actividad) => a.tipo === 'prensa' && a.confirmaciones.some((c) => c.estado !== 'acepta');
 
@@ -112,8 +174,8 @@ export default function Calendario() {
     const t = TIPOS[a.tipo];
     const relleno = a.todo_el_dia || a.es_partido;
     return (
-      <button type="button" onClick={(e) => { e.stopPropagation(); setDetalle(a); }}
-        style={{ width: '100%', minHeight: 24, border: 0, borderRadius: 6, padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 5, font: `${a.es_partido ? 700 : 500} 12px Inter, sans-serif`, textAlign: 'left', background: relleno ? t.bg : 'transparent', color: relleno ? t.fg : 'var(--ink)' }}>
+      <button type="button" aria-pressed={sel.includes(a.id)} onClick={(e) => clicActividad(e, a)}
+        style={{ width: '100%', minHeight: 24, border: 0, borderRadius: 6, padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 5, font: `${a.es_partido ? 700 : 500} 12px Inter, sans-serif`, textAlign: 'left', background: sel.includes(a.id) ? '#16181D' : relleno ? t.bg : 'transparent', color: sel.includes(a.id) ? '#fff' : relleno ? t.fg : 'var(--ink)' }}>
         {!a.todo_el_dia && <span style={{ flex: 'none', width: 7, height: 7, borderRadius: 4, background: t.color }} />}
         <span style={{ flex: 'none', fontVariantNumeric: 'tabular-nums' }}>{a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio)}</span>
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{titulo(a)}</span>
@@ -125,8 +187,8 @@ export default function Calendario() {
   const Tarjeta = ({ a }: { a: Actividad }) => {
     const t = TIPOS[a.tipo];
     return (
-      <button type="button" className="card" onClick={() => setDetalle(a)}
-        style={{ width: '100%', border: 0, padding: 14, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 6, background: a.es_partido ? t.bg : '#fff' }}>
+      <button type="button" className="card" aria-pressed={sel.includes(a.id)} onClick={(e) => clicActividad(e, a)}
+        style={{ width: '100%', border: 0, padding: 14, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 6, background: a.es_partido ? t.bg : '#fff', boxShadow: sel.includes(a.id) ? 'inset 0 0 0 2px #16181D' : undefined }}>
         <span className="row" style={{ justifyContent: 'space-between', width: '100%' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.fg }}>{a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio) + (a.hora_fin ? `–${hora(a.hora_fin)}` : '')} · {t.nombre}</span>
           {a.lugar && <span className="xs muted">{a.lugar}</span>}
@@ -171,6 +233,33 @@ export default function Calendario() {
       </div>
 
       {error && <p className="notice notice-error" role="alert">{error}</p>}
+      {puedeCrear && !sel.length && !clip.length && (
+        <p className="xs muted solo-escritorio" style={{ margin: '0 0 10px' }}>Para copiar o borrar varias: ⌘ (o Ctrl o Mayús) + clic en cada actividad, o Mayús + clic en el número del día para elegir días enteros. Después ⌘C y ⌘V, o los botones.</p>
+      )}
+
+      {puedeCrear && (sel.length > 0 || clip.length > 0 || trabajando) && (
+        <div className="card row" style={{ padding: '8px 12px', gap: 8, marginBottom: 12, position: 'sticky', top: 0, zIndex: 3 }}>
+          {trabajando ? <span className="small">{trabajando}</span> : sel.length > 0 ? (confirmarBorrar ? (
+            <>
+              <span className="small" style={{ fontWeight: 600 }}>¿Borrar {sel.length} actividad{sel.length > 1 ? 'es' : ''}?</span>
+              <button type="button" className="btn btn-sm" onClick={() => setConfirmarBorrar(false)}>No</button>
+              <button type="button" className="btn btn-sm btn-danger" onClick={borrarSel}>Sí, borrar</button>
+            </>
+          ) : (
+            <>
+              <strong className="small">{sel.length} elegida{sel.length > 1 ? 's' : ''}</strong>
+              <button type="button" className="btn btn-sm btn-primary" onClick={copiarSel}>Copiar</button>
+              <button type="button" className="btn btn-sm link-danger" onClick={() => setConfirmarBorrar(true)}>Borrar</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setSel([]); setDiaAncla(null); }}>Cancelar</button>
+            </>
+          )) : (
+            <>
+              <span className="small">{clip.length} copiada{clip.length > 1 ? 's' : ''}: tocá «Pegar» en el día donde empiezan (o pasá el mouse por el día y ⌘V). Se mantienen los horarios y la distancia entre días.</span>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setClip([])}>Descartar</button>
+            </>
+          )}
+        </div>
+      )}
 
       {vista === 'mes' && (
         <div className="card table-wrap">
@@ -186,13 +275,17 @@ export default function Calendario() {
                 const otroMes = d.getMonth() !== ref.getMonth();
                 const fuera = lista.some((a) => a.es_partido && a.fuera);
                 return (
-                  <div key={s} onClick={() => { if (puedeCrear) setForm({ fecha: s }); }}
+                  <div key={s} onClick={() => { if (sel.length) { setSel([]); return; } if (puedeCrear) setForm({ fecha: s }); }} onMouseEnter={() => setDiaHover(s)}
                     style={{ minHeight: 118, padding: 6, borderRight: '1px solid var(--line-soft)', borderBottom: '1px solid var(--line-soft)', display: 'flex', flexDirection: 'column', gap: 3, background: otroMes ? '#FAFAF8' : fuera ? '#F2F9EE' : '#fff', cursor: puedeCrear ? 'pointer' : 'default' }}>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); setRef(d); setVista('dia'); }} aria-label={fechaLarga(s)}
+                    <button type="button" onClick={(e) => { e.stopPropagation(); if (puedeCrear && (e.shiftKey || e.metaKey || e.ctrlKey)) { elegirDias(s); return; } setRef(d); setVista('dia'); }} aria-label={fechaLarga(s)}
                       style={{ alignSelf: 'flex-start', border: 0, padding: '2px 7px', borderRadius: 12, fontSize: 13, fontWeight: 700, background: s === hoy ? 'var(--accent)' : 'transparent', color: s === hoy ? '#fff' : otroMes ? '#B7B3AA' : 'var(--ink)' }}>
                       {d.getDate()}
                     </button>
                     {lista.slice(0, 3).map((a) => <Chip key={a.id} a={a} />)}
+                    {clip.length > 0 && !trabajando && (
+                      <button type="button" className="xs" onClick={(e) => { e.stopPropagation(); void pegarEn(s); }}
+                        style={{ alignSelf: 'flex-start', border: '1px dashed #9A9DA4', background: 'transparent', borderRadius: 6, padding: '1px 6px', fontWeight: 600, color: '#3F444D' }}>Pegar</button>
+                    )}
                     {lista.length > 3 && (
                       <button type="button" onClick={(e) => { e.stopPropagation(); setRef(d); setVista('dia'); }} style={{ border: 0, background: 'transparent', textAlign: 'left', padding: '0 6px', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>+{lista.length - 3} más</button>
                     )}
@@ -211,14 +304,19 @@ export default function Calendario() {
             const s = iso(d);
             const lista = deDia(s);
             return (
-              <section key={s} aria-label={fechaLarga(s)} className="card" style={{ display: 'flex', gap: 12, padding: '12px 14px', boxShadow: s === hoy ? 'inset 0 0 0 2px var(--accent)' : undefined }}>
-                <div style={{ width: 44, flex: 'none', textAlign: 'center' }}>
+              <section key={s} aria-label={fechaLarga(s)} className="card" onMouseEnter={() => setDiaHover(s)} style={{ display: 'flex', gap: 12, padding: '12px 14px', boxShadow: s === hoy ? 'inset 0 0 0 2px var(--accent)' : undefined }}>
+                <div style={{ width: 44, flex: 'none', textAlign: 'center', cursor: puedeCrear ? 'pointer' : undefined }} title={puedeCrear ? 'Mayús + clic: elegir todo el día' : undefined}
+                  onClick={(e) => { if (puedeCrear && (e.shiftKey || e.metaKey || e.ctrlKey)) elegirDias(s); }}>
                   <div className="xs muted" style={{ fontWeight: 600, textTransform: 'uppercase' }}>{DIAS_CORTOS[diaSemana(d)]}</div>
                   <div className="display" style={{ fontSize: 26, color: s === hoy ? 'var(--accent)' : undefined }}>{d.getDate()}</div>
                 </div>
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {lista.length === 0 && <span className="small muted" style={{ paddingTop: 6 }}>Sin actividades</span>}
                   {lista.map((a) => <Chip key={a.id} a={a} />)}
+                  {clip.length > 0 && !trabajando && (
+                    <button type="button" className="xs" onClick={() => void pegarEn(s)}
+                      style={{ alignSelf: 'flex-start', border: '1px dashed #9A9DA4', background: 'transparent', borderRadius: 6, padding: '1px 6px', fontWeight: 600, color: '#3F444D' }}>Pegar acá</button>
+                  )}
                 </div>
               </section>
             );
@@ -230,6 +328,7 @@ export default function Calendario() {
         <div className="stack" style={{ gap: 10, maxWidth: 640 }}>
           {deDia(iso(ref)).length === 0 && <div className="card muted" style={{ padding: 16 }}>No hay actividades este día.</div>}
           {deDia(iso(ref)).map((a) => <Tarjeta key={a.id} a={a} />)}
+          {clip.length > 0 && !trabajando && <button type="button" className="btn" onClick={() => void pegarEn(iso(ref))}>Pegar acá ({clip.length})</button>}
         </div>
       )}
 
@@ -318,8 +417,77 @@ function Detalle({ a, yo, nombreDe, grupos, puedeEditar, onCerrar, onEditar, onC
           ))}
         </div>
       )}
+      <Adjuntos actividad={a} puedeEditar={puedeEditar} />
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
     </Dialogo>
+  );
+}
+
+type Adjunto = { id: string; ruta: string; nombre: string; tipo: string; bytes: number };
+const TIPOS_ADJUNTO = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
+const tamano = (b: number) => (b > 1048576 ? `${(b / 1048576).toFixed(1).replace('.', ',')} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+// Imágenes o PDF de una actividad (por ejemplo, el plan del entrenamiento). Carpeta privada.
+function Adjuntos({ actividad, puedeEditar }: { actividad: Actividad; puedeEditar: boolean }) {
+  const [lista, setLista] = useState<Adjunto[]>([]);
+  const [subiendo, setSubiendo] = useState(false);
+  const [error, setError] = useState('');
+  const cargar = useCallback(async () => {
+    const { data } = await supabase.from('actividad_adjuntos').select('id,ruta,nombre,tipo,bytes').eq('actividad_id', actividad.id).order('creado_en');
+    setLista((data as Adjunto[]) ?? []);
+  }, [actividad.id]);
+  useEffect(() => { cargar(); }, [cargar]);
+
+  async function abrir(x: Adjunto) {
+    const ventana = window.open('', '_blank');
+    const { data, error } = await supabase.storage.from('adjuntos').createSignedUrl(x.ruta, 300);
+    if (error || !data) { ventana?.close(); setError('No se pudo abrir el archivo.'); return; }
+    if (ventana) ventana.location.href = data.signedUrl; else window.location.href = data.signedUrl;
+  }
+  async function subir(f: File) {
+    setError('');
+    if (!TIPOS_ADJUNTO.includes(f.type)) { setError('Solo imágenes (PNG, JPG, WebP, HEIC) o PDF.'); return; }
+    if (f.size > 5 * 1048576) { setError('El archivo pesa más de 5 MB. Probá con una versión más liviana.'); return; }
+    setSubiendo(true);
+    const limpio = f.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]+/g, '-').slice(-80) || 'archivo';
+    const ruta = `${actividad.club_id}/${actividad.id}/${Date.now()}-${limpio}`;
+    const up = await supabase.storage.from('adjuntos').upload(ruta, f, { contentType: f.type });
+    if (up.error) { setSubiendo(false); setError(mensajeError(up.error)); return; }
+    const { error } = await supabase.rpc('registrar_adjunto', { p_actividad: actividad.id, p_ruta: ruta, p_nombre: f.name, p_tipo: f.type, p_bytes: f.size });
+    if (error) { await supabase.storage.from('adjuntos').remove([ruta]); setError(mensajeError(error)); }
+    setSubiendo(false); cargar();
+  }
+  async function borrar(x: Adjunto) {
+    const { data, error } = await supabase.rpc('borrar_adjunto', { p_id: x.id });
+    if (error) { setError(mensajeError(error)); return; }
+    await supabase.storage.from('adjuntos').remove([data as string]);
+    cargar();
+  }
+  if (!lista.length && !puedeEditar) return null;
+  return (
+    <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '8px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>Archivos</p>
+      {lista.length === 0 && <span className="xs muted">Sin archivos. Podés adjuntar una imagen o un PDF (hasta 5 MB).</span>}
+      {lista.map((x) => (
+        <div key={x.id} className="row" style={{ gap: 8, justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+          <button type="button" onClick={() => abrir(x)} style={{ border: 0, background: 'transparent', padding: 0, textAlign: 'left', color: '#1D4ED8', fontWeight: 600, fontSize: 14, minWidth: 0, overflowWrap: 'anywhere' }}>
+            {x.tipo === 'application/pdf' ? 'PDF' : 'Imagen'} · {x.nombre}
+          </button>
+          <span className="row" style={{ gap: 6, flex: 'none' }}>
+            <span className="xs muted">{tamano(x.bytes)}</span>
+            {puedeEditar && <button type="button" className="btn btn-sm btn-ghost link-danger" aria-label={`Quitar ${x.nombre}`} onClick={() => borrar(x)}>×</button>}
+          </span>
+        </div>
+      ))}
+      {puedeEditar && lista.length < 10 && (
+        <label className="btn btn-sm" style={{ alignSelf: 'flex-start', cursor: 'pointer' }}>
+          {subiendo ? 'Subiendo…' : '+ Adjuntar imagen o PDF'}
+          <input type="file" className="sr-only" accept={TIPOS_ADJUNTO.join(',')} disabled={subiendo}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) void subir(f); e.target.value = ''; }} />
+        </label>
+      )}
+      {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+    </div>
   );
 }
 

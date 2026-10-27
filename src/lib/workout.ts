@@ -72,7 +72,7 @@ export type Destino = { tipo: 'equipo'; ref?: null } | { tipo: 'grupo'; ref: str
 export type Serie = { reps: string; kg: number | null };
 export type Item = {
   id: string;
-  tipo: 'ejercicio' | 'break' | 'nota';   // «break» = session break (título); «nota» = recordatorio libre
+  tipo: 'ejercicio' | 'break' | 'nota' | 'pregunta';   // break = session break (título); nota = recordatorio; pregunta = cuestionario
   bloque: string;
   ejercicio_id: string | null;
   nombre: string;
@@ -85,7 +85,10 @@ export type Item = {
   nota: string;
   origen_id: string | null;   // de qué ejercicio del nivel superior salió esta copia
   modificado: boolean;        // si la cambiaste en este nivel (entonces no se pisa sola)
+  config: Config;
 };
+// Ejercicio: unidad reps o segundos. Cuestionario: formato y opciones.
+export type Config = { unidad?: 'reps' | 'seg'; formato?: 'escala' | 'opciones' | 'texto'; opciones?: string[]; min?: number; max?: number };
 export type Sesion = { id: string; fecha: string; destinos: Destino[]; items: Item[] };
 
 export const BREAKS_SUGERIDOS = ['Activación', 'Bloque principal', 'Accesorios'];
@@ -106,11 +109,11 @@ export function nuevoId(): string {
 export function itemDesdeDb(r: Record<string, unknown>): Item {
   return {
     id: r.id as string,
-    tipo: r.tipo === 'break' ? 'break' : r.tipo === 'nota' ? 'nota' : 'ejercicio',
+    tipo: r.tipo === 'break' || r.tipo === 'nota' || r.tipo === 'pregunta' ? r.tipo : 'ejercicio',
     bloque: (r.bloque as string) || 'Bloque principal',
     ejercicio_id: (r.ejercicio_id as string) ?? null,
     nombre: r.nombre as string,
-    series: Number(r.series) || (r.tipo === 'break' ? 0 : 1),
+    series: Number(r.series) || (r.tipo === 'ejercicio' || !r.tipo ? 1 : 0),
     reps: (r.reps as string) ?? '',
     cada_lado: !!r.cada_lado,
     con_carga: !!r.con_carga,
@@ -119,6 +122,7 @@ export function itemDesdeDb(r: Record<string, unknown>): Item {
     nota: (r.nota as string) ?? '',
     origen_id: (r.origen_id as string) ?? null,
     modificado: !!r.modificado,
+    config: (r.config && typeof r.config === 'object' ? r.config : {}) as Config,
   };
 }
 
@@ -128,7 +132,8 @@ const kgTexto = (kg: number | null) => (kg == null ? '—' : String(kg).replace(
 export function esquema(it: Item): string {
   const repsVariables = it.detalle.length > 1 && new Set(it.detalle.map((s) => s.reps)).size > 1;
   const reps = repsVariables ? it.detalle.map((s) => s.reps || '—').join('-') : (it.detalle[0]?.reps || it.reps || '—');
-  let t = `${it.series} × ${reps}${it.cada_lado ? ' c/lado' : ''}`;
+  const seg = it.config?.unidad === 'seg';
+  let t = `${it.series} × ${reps}${seg ? ' s' : ''}${it.cada_lado ? ' c/lado' : ''}`;
   if (it.detalle.some((s) => s.kg != null)) {
     const kgs = it.detalle.map((s) => kgTexto(s.kg));
     t += ` · ${new Set(kgs).size === 1 ? `${kgs[0]} kg` : kgs.join('-')}`;
@@ -156,4 +161,12 @@ export function etiquetaMD(fecha: string, partidos: string[]): string | null {
   if (despues != null && despues <= 7) return `MD-${despues}`;
   if (antes != null && antes <= 7) return `MD+${antes}`;
   return null; // lejos de cualquier partido (pretemporada, parones): sin etiqueta
+}
+
+// «10 reps cada lado» / «30 seg cada lado», para el jugador.
+export function unidadTexto(it: { config?: Config; cada_lado?: boolean }): string {
+  return `${it.config?.unidad === 'seg' ? 'seg' : 'reps'}${it.cada_lado ? ' cada lado' : ''}`;
+}
+export function textoPregunta(c: Config): string {
+  return c.formato === 'texto' ? 'Respuesta libre' : c.formato === 'opciones' ? (c.opciones ?? []).join(' · ') : `Escala ${c.min ?? 0} a ${c.max ?? 10}`;
 }

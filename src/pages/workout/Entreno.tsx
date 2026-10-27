@@ -2,11 +2,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, mensajeError } from '../../lib/supabase';
 import { DIAS, MESES, desdeIso, diaSemana, hoyIso, iso, sumarDias } from '../../lib/calendario';
-import { esquema, idYoutube, tiempoTexto, type Item, type Serie } from '../../lib/workout';
+import { esquema, idYoutube, tiempoTexto, unidadTexto, type Config, type Item, type Serie } from '../../lib/workout';
 import type { EstadoHoy } from '../../lib/wellness';
 
 type ItemEntreno = {
-  id: string; tipo: 'ejercicio' | 'break' | 'nota'; nombre: string; ejercicio_id: string | null; series: number | null; reps: string | null;
+  id: string; tipo: 'ejercicio' | 'break' | 'nota' | 'pregunta'; nombre: string; config: Config | null; ejercicio_id: string | null; series: number | null; reps: string | null;
   cada_lado: boolean; detalle: Serie[]; descanso_seg: number | null; nota: string | null;
   video_url: string | null; consignas: string | null; hecho: Serie[] | null; completado_en: string | null;
 };
@@ -17,7 +17,7 @@ const kgTxt = (kg: number | null | undefined) => (kg == null ? '' : String(kg).r
 const leerKg = (t: string) => { const v = t.trim().replace(',', '.'); if (!v) return null; const n = Number(v); return Number.isFinite(n) && n >= 0 && n <= 1000 ? n : null; };
 const comoItem = (e: ItemEntreno): Item => ({
   id: e.id, tipo: e.tipo, bloque: '', ejercicio_id: e.ejercicio_id, nombre: e.nombre, series: e.series ?? 0, reps: e.reps ?? '',
-  cada_lado: e.cada_lado, con_carga: false, detalle: e.detalle ?? [], descanso_seg: e.descanso_seg, nota: e.nota ?? '', origen_id: null, modificado: false,
+  cada_lado: e.cada_lado, con_carga: false, detalle: e.detalle ?? [], descanso_seg: e.descanso_seg, nota: e.nota ?? '', origen_id: null, modificado: false, config: e.config ?? {},
 });
 const prescritas = (e: ItemEntreno): Serie[] => {
   const n = e.series ?? 0;
@@ -97,7 +97,10 @@ export default function Entreno({ perfilId, soloLectura = false }: { perfilId?: 
             <span className="small muted">{hechos} de {ejercicios.length} completados</span>
           </div>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            {(items ?? []).map((it, i) => it.tipo === 'nota' ? (
+            {(items ?? []).map((it, i) => it.tipo === 'pregunta' ? (
+              <Pregunta key={it.id} it={it} borde={i > 0} soloLectura={soloLectura}
+                onGuardado={(hecho) => setItems((its) => its && its.map((x) => (x.id === it.id ? { ...x, hecho, completado_en: new Date().toISOString() } : x)))} />
+            ) : it.tipo === 'nota' ? (
               <div key={it.id} className="small" style={{ padding: '10px 14px', background: '#FFF2C2', color: '#4A3600', borderTop: i ? '1px solid var(--line-soft)' : 0, whiteSpace: 'pre-wrap', boxShadow: 'inset 4px 0 0 #E5A800' }}>
                 <span className="xs" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', display: 'block' }}>Nota del PF</span>{it.nota || it.nombre}
               </div>
@@ -170,7 +173,7 @@ function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado 
 
       <div>
         <h2 className="display" style={{ margin: 0, fontSize: 28, overflowWrap: 'anywhere' }}>{e.nombre}</h2>
-        <span className="small muted">{esquema(comoItem(e))}</span>
+        <span className="small muted">{esquema(comoItem(e))} · {unidadTexto({ config: e.config ?? {}, cada_lado: e.cada_lado })}</span>
       </div>
 
       {e.consignas && <p className="small" style={{ margin: 0 }}><strong>Cómo se hace: </strong>{e.consignas}</p>}
@@ -183,7 +186,7 @@ function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado 
 
       <div className="card" style={{ padding: '4px 0' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 1fr', gap: 8, padding: '8px 14px' }} className="xs muted">
-          <strong>Serie</strong><strong>Kg</strong><strong>{e.cada_lado ? 'Reps c/lado' : 'Reps'}</strong>
+          <strong>Serie</strong><strong>Kg</strong><strong>{e.config?.unidad === 'seg' ? 'Segundos' : 'Reps'}{e.cada_lado ? ' c/lado' : ''}</strong>
         </div>
         {filas.map((f, i) => (
           <div key={i}>
@@ -227,6 +230,63 @@ function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado 
         </button>
       ))}
       {soloLectura && <p className="xs muted" style={{ margin: 0 }}>{e.completado_en ? 'Completado por el jugador.' : 'Todavía no lo completó.'}</p>}
+    </div>
+  );
+}
+
+// Una pregunta del PF dentro del entreno: barra deslizante, lista de opciones o texto.
+function Pregunta({ it, borde, soloLectura, onGuardado }: { it: ItemEntreno; borde: boolean; soloLectura: boolean; onGuardado: (hecho: Serie[]) => void }) {
+  const c = it.config ?? {};
+  const previo = (it.hecho?.[0] ?? {}) as { valor?: number | string; texto?: string };
+  const min = c.min ?? 0; const max = c.max ?? 10;
+  const [valor, setValor] = useState<string>(previo.valor != null ? String(previo.valor) : previo.texto ?? '');
+  const [tocado, setTocado] = useState(previo.valor != null || !!previo.texto);
+  const [estado, setEstado] = useState<'' | 'guardando' | 'ok' | 'error'>(it.completado_en ? 'ok' : '');
+  async function guardar() {
+    if (!valor.trim()) return;
+    setEstado('guardando');
+    const hecho = c.formato === 'texto' ? [{ texto: valor.trim().slice(0, 500) }] : c.formato === 'opciones' ? [{ valor: valor }] : [{ valor: Number(valor) }];
+    const { error } = await supabase.rpc('guardar_registro', { p_item: it.id, p_hecho: hecho, p_completado: true });
+    if (error) { setEstado('error'); return; }
+    setEstado('ok'); onGuardado(hecho as unknown as Serie[]);
+  }
+  return (
+    <div style={{ padding: '12px 14px', background: '#EFE9FF', color: '#2E2160', borderTop: borde ? '1px solid var(--line-soft)' : 0, boxShadow: 'inset 4px 0 0 #7C5CE0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <span className="xs" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>Pregunta del PF</span>
+      <strong style={{ fontSize: 16 }}>{it.nombre}</strong>
+      {soloLectura ? (
+        <span className="small">{tocado ? `Respuesta: ${valor}` : 'Todavía no respondió.'}</span>
+      ) : (
+        <>
+          {(!c.formato || c.formato === 'escala') && (
+            <div className="stack" style={{ gap: 4 }}>
+              <div className="row" style={{ gap: 10, flexWrap: 'nowrap' }}>
+                <span className="xs">{min}</span>
+                <input type="range" min={min} max={max} step={1} value={tocado ? Number(valor) : Math.round((min + max) / 2)} aria-label={it.nombre}
+                  onChange={(e) => { setValor(e.target.value); setTocado(true); setEstado(''); }} style={{ flex: 1, accentColor: '#7C5CE0', height: 32 }} />
+                <span className="xs">{max}</span>
+                <strong style={{ minWidth: 28, textAlign: 'center', fontSize: 20 }}>{tocado ? valor : '–'}</strong>
+              </div>
+            </div>
+          )}
+          {c.formato === 'opciones' && (
+            <select className="select" value={valor} aria-label={it.nombre} onChange={(e) => { setValor(e.target.value); setTocado(true); setEstado(''); }}>
+              <option value="">Elegí una opción</option>
+              {(c.opciones ?? []).map((o) => <option key={o}>{o}</option>)}
+            </select>
+          )}
+          {c.formato === 'texto' && (
+            <textarea className="input" rows={2} maxLength={500} value={valor} aria-label={it.nombre} placeholder="Escribí tu respuesta"
+              onChange={(e) => { setValor(e.target.value); setTocado(true); setEstado(''); }} style={{ height: 'auto', padding: '10px 12px' }} />
+          )}
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="btn btn-sm" style={{ background: '#7C5CE0', color: '#fff', border: 0 }} disabled={!tocado || !valor.trim() || estado === 'guardando'} onClick={guardar}>
+              {estado === 'guardando' ? 'Guardando…' : estado === 'ok' ? 'Guardado ✓' : 'Responder'}
+            </button>
+            {estado === 'error' && <span className="xs" style={{ color: '#8F1D1D' }}>No se pudo guardar. Probá de nuevo.</span>}
+          </div>
+        </>
+      )}
     </div>
   );
 }

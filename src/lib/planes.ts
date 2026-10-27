@@ -33,7 +33,7 @@ export function efectivo(clave: string, fecha: string, m: Mapa, ctx: Ctx): { ite
   return { items: e.items, desde: e.desde, propio: false };
 }
 
-const copia = (it: Item): Item => ({ ...it, id: nuevoId(), origen_id: it.id, modificado: false, detalle: it.detalle.map((s) => ({ ...s })) });
+const copia = (it: Item): Item => ({ ...it, id: nuevoId(), origen_id: it.id, modificado: false, detalle: it.detalle.map((s) => ({ ...s })), config: { ...(it.config ?? {}) } });
 
 // Convierte el día heredado en propio (copiando lo de arriba). Muta «m».
 export function materializar(clave: string, fecha: string, m: Mapa, ctx: Ctx): Item[] {
@@ -43,8 +43,8 @@ export function materializar(clave: string, fecha: string, m: Mapa, ctx: Ctx): I
 }
 
 export function contenido(it: Item): string {
-  const { tipo, ejercicio_id, nombre, series, reps, cada_lado, con_carga, detalle, descanso_seg, nota } = it;
-  return JSON.stringify([tipo, ejercicio_id, nombre, series, reps, cada_lado, con_carga, detalle, descanso_seg, nota]);
+  const { tipo, ejercicio_id, nombre, series, reps, cada_lado, con_carga, detalle, descanso_seg, nota, config } = it;
+  return JSON.stringify([tipo, ejercicio_id, nombre, series, reps, cada_lado, con_carga, detalle, descanso_seg, nota, config ?? {}]);
 }
 
 // En un nivel inferior, lo que cambiaste de una copia queda marcado como «modificado».

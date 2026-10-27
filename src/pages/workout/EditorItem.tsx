@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Dialogo from '../../components/Dialogo';
 import { supabase, mensajeError } from '../../lib/supabase';
 import { CATEGORIAS, nuevoId, normalizar, type Ejercicio, type Item, type Serie } from '../../lib/workout';
@@ -41,6 +41,9 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
   const [filas, setFilas] = useState<Fila[]>(() => filasIniciales(item));
   const series = filas.length;
   const [cadaLado, setCadaLado] = useState(item?.cada_lado ?? false);
+  const [unidad, setUnidad] = useState<'reps' | 'seg'>(item?.config?.unidad === 'seg' ? 'seg' : 'reps');
+  const [agregados, setAgregados] = useState<string[]>([]);
+  const buscador = useRef<HTMLInputElement>(null);
   const [conDescanso, setConDescanso] = useState(item?.descanso_seg != null);
   const [min, setMin] = useState(item?.descanso_seg != null ? String(Math.floor(item.descanso_seg / 60)) : '1');
   const [seg, setSeg] = useState(item?.descanso_seg != null ? String(item.descanso_seg % 60).padStart(2, '0') : '30');
@@ -103,22 +106,36 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
       id: item?.id ?? nuevoId(), tipo: 'ejercicio', bloque: item?.bloque ?? 'Bloque principal', ejercicio_id: elegido.id, nombre: elegido.nombre,
       series, reps: det[0]?.reps ?? '', cada_lado: cadaLado, con_carga: det.some((d) => d.kg != null), detalle: det,
       descanso_seg: descanso, nota: conNota ? nota.trim() : '', origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false,
+      config: { ...(item?.config ?? {}), unidad },
     });
+    if (!item) {
+      // La ventana queda abierta para seguir agregando: se limpia el ejercicio y se mantiene el resto.
+      setAgregados((a) => [...a, elegido.nombre]);
+      setBusca(''); setElegido(null); setAbierto(true); setVerHistorial(false);
+      setFilas((f) => f.map((x) => ({ ...x, kg: '', tocadaKg: false })));
+      setConNota(false); setNota('');
+      setTimeout(() => buscador.current?.focus(), 0);
+    }
   }
 
   return (
-    <Dialogo titulo={item ? 'Editar ejercicio' : 'Añadir ejercicio'} onCerrar={onCerrar} ancho={640}
+    <Dialogo titulo={item ? 'Editar ejercicio' : 'Añadir ejercicios'} onCerrar={onCerrar} ancho={640}
       pie={<>
         <span className="small muted" style={{ marginRight: 'auto' }}>{dia}</span>
         {elegido && <button type="button" className="btn btn-ghost" aria-pressed={verHistorial} onClick={() => setVerHistorial(!verHistorial)}>Historial</button>}
-        <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
+        <button type="button" className="btn" onClick={onCerrar}>{item ? 'Cancelar' : agregados.length ? 'Listo' : 'Cerrar'}</button>
         <button type="button" className="btn btn-primary" onClick={guardar}>{item ? 'Guardar' : 'Añadir'}</button>
       </>}>
       <div className="stack" style={{ gap: 14 }}>
+        {agregados.length > 0 && (
+          <p className="notice notice-ok" role="status" style={{ margin: 0 }}>
+            Añadido{agregados.length > 1 ? 's' : ''}: {agregados.join(' · ')}. Seguí con el próximo o tocá «Listo».
+          </p>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 190px', gap: 10, alignItems: 'end' }}>
           <div className="field" style={{ position: 'relative' }}>
             <span id="it-ejercicio-label">Ejercicio</span>
-            <input id="it-ejercicio" aria-labelledby="it-ejercicio-label" className="input" autoFocus={!item} autoComplete="off" value={busca} placeholder="Escribí para buscar…"
+            <input ref={buscador} id="it-ejercicio" aria-labelledby="it-ejercicio-label" className="input" autoFocus={!item} autoComplete="off" value={busca} placeholder="Escribí para buscar…"
               role="combobox" aria-expanded={abierto && busca.trim().length > 0} aria-controls="it-sugerencias"
               onChange={(e) => { setBusca(e.target.value); setAbierto(true); setElegido(null); }}
               onKeyDown={(e) => { if (e.key === 'Enter' && sugerencias[0]) { e.preventDefault(); setElegido({ id: sugerencias[0].id, nombre: sugerencias[0].nombre }); setBusca(sugerencias[0].nombre); setAbierto(false); } }} />
@@ -160,6 +177,12 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
               <button type="button" className="btn btn-sm" aria-label="Una serie más" onClick={() => cambiarSeries(series + 1)}>+</button>
             </div>
           </div>
+          <div className="field"><span>Se mide en</span>
+            <div className="row" role="group" aria-label="Se mide en" style={{ gap: 4 }}>
+              <button type="button" className="chip" aria-pressed={unidad === 'reps'} onClick={() => setUnidad('reps')}>Reps</button>
+              <button type="button" className="chip" aria-pressed={unidad === 'seg'} onClick={() => setUnidad('seg')}>Segundos</button>
+            </div>
+          </div>
           <label className="row" style={{ gap: 8, minHeight: 44, cursor: 'pointer' }}>
             <input id="it-lado" type="checkbox" checked={cadaLado} onChange={(e) => setCadaLado(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#16181D' }} />
             <span>Cada lado</span>
@@ -168,13 +191,13 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
 
         <div>
           <table className="tbl" style={{ maxWidth: 380 }}>
-            <thead><tr><th>Serie</th><th>{cadaLado ? 'Reps c/lado' : 'Reps'}</th><th>Kg</th></tr></thead>
+            <thead><tr><th>Serie</th><th>{unidad === 'seg' ? 'Segundos' : 'Reps'}{cadaLado ? ' c/lado' : ''}</th><th>Kg</th></tr></thead>
             <tbody>
               {filas.map((f, i) => (
                 <tr key={i}>
                   <td style={{ fontWeight: 600 }}>{i + 1}</td>
                   <td><input className="input" id={`it-reps-${i}`} style={{ height: 38, width: 100, color: i > 0 && !f.tocadaReps ? 'var(--muted)' : undefined }}
-                    aria-label={`Reps de la serie ${i + 1}`} maxLength={20} value={f.reps} placeholder={i === 0 ? '8 · 30 s' : ''}
+                    aria-label={`Reps de la serie ${i + 1}`} maxLength={20} value={f.reps} placeholder={i === 0 ? (unidad === 'seg' ? '30' : '8') : ''}
                     onChange={(e) => cambiarFila(i, 'reps', e.target.value)} /></td>
                   <td><input className="input" id={`it-kg-${i}`} style={{ height: 38, width: 100, color: i > 0 && !f.tocadaKg ? 'var(--muted)' : undefined }}
                     inputMode="decimal" aria-label={`Kilos de la serie ${i + 1}`} placeholder="—" value={f.kg}
