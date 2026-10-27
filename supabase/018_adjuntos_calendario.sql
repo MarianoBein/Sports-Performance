@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Calendario: adjuntar imágenes o PDF a una actividad (hasta 5 MB cada uno).
--- Pegar entero en Supabase → SQL Editor → Run (después del 016). Una sola vez.
+-- Pegar entero en Supabase → SQL Editor → Run (después del 017). Una sola vez.
 --
 -- Los archivos van a una carpeta privada «adjuntos/<club>/<actividad>/...».
 -- Solo los ve quien ve la actividad, y solo los sube o borra quien puede editarla.

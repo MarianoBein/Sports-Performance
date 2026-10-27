@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Workout Builder: cuestionarios dentro del plan y reps o segundos.
--- Pegar entero en Supabase → SQL Editor → Run (después del 015). Una sola vez.
+-- Pegar entero en Supabase → SQL Editor → Run (después del 016). Una sola vez.
 --
 -- config (por ejercicio): {"unidad": "reps" | "seg"}
 -- config (por cuestionario): {"formato": "escala" | "opciones" | "texto", "opciones": [...], "min": 0, "max": 10}
