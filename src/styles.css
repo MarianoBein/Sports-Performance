@@ -129,3 +129,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
   .wb-aviso-movil { display: block !important; }
 }
 .wb-aviso-movil { display: none; }
+
+/* ---------- Inicio: dos columnas en la compu ---------- */
+.inicio-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .inicio-grid { grid-template-columns: minmax(0, 1fr); } }

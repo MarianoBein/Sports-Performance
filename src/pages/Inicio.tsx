@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSesion } from '../lib/sesion';
 import { supabase, mensajeError } from '../lib/supabase';
-import { TIPOS, cargarActividades, fechaLarga, hora, hoyIso, titulo, type Actividad } from '../lib/calendario';
+import { DIAS_CORTOS, TIPOS, cargarActividades, desdeIso, diaSemana, fechaLarga, hora, hoyIso, iso, sumarDias, titulo, type Actividad } from '../lib/calendario';
 import { puede } from '../lib/permisos';
 import type { EstadoHoy } from '../lib/wellness';
 
@@ -19,6 +19,9 @@ export default function Inicio() {
   const [hoy, setHoy] = useState<Actividad[]>([]);
   const [pendientes, setPendientes] = useState<Actividad[]>([]);
   const [estado, setEstado] = useState<EstadoHoy | null>(null);
+  const [semana, setSemana] = useState<Actividad[]>([]);
+  const [respuestas, setRespuestas] = useState<{ w: number; wAplica: number; r: number; rAplica: number } | null>(null);
+  const veSSH = !!permisos && !perfil?.rol.es_jugador && ['ver', 'editar'].includes(permisos.sports_science.nivel);
   const [error, setError] = useState('');
   const conCalendario = !!permisos && puede(permisos, 'calendario');
 
@@ -32,6 +35,7 @@ export default function Inicio() {
     try {
       const d = hoyIso();
       setHoy(await cargarActividades(d, d));
+      setSemana(await cargarActividades(iso(sumarDias(desdeIso(d), 1)), iso(sumarDias(desdeIso(d), 7))));
       const { data } = await supabase.from('actividad_confirmaciones')
         .select('actividad_id').eq('perfil_id', perfil.id).eq('estado', 'pendiente');
       const ids = (data ?? []).map((x: { actividad_id: string }) => x.actividad_id);
@@ -45,6 +49,15 @@ export default function Inicio() {
   }, [perfil, conCalendario]);
   useEffect(() => { cargar(); }, [cargar]);
 
+  // Para el staff: cuántos jugadores respondieron hoy.
+  useEffect(() => {
+    if (!veSSH) return;
+    supabase.rpc('respuestas_dia', { p_fecha: hoyIso() }).then(({ data }) => {
+      const f = (data ?? []) as { preparacion: number | null; rpe: number | null; wellness_aplica: boolean; rpe_aplica: boolean }[];
+      setRespuestas({ w: f.filter((x) => x.preparacion != null).length, wAplica: f.filter((x) => x.wellness_aplica).length, r: f.filter((x) => x.rpe != null).length, rAplica: f.filter((x) => x.rpe_aplica).length });
+    });
+  }, [veSSH]);
+
   async function responder(id: string, estado: 'acepta' | 'no_puede') {
     const { error } = await supabase.rpc('responder_actividad', { p_id: id, p_estado: estado });
     if (error) setError(mensajeError(error)); else cargar();
@@ -53,13 +66,16 @@ export default function Inicio() {
   if (!perfil) return null;
   const nombre = perfil.nombre.split(' ')[0];
   return (
-    <div className="stack" style={{ maxWidth: 720 }}>
+    <div className="stack" style={{ gap: 20 }}>
       <div>
         <p className="muted small" style={{ margin: '0 0 4px' }}>{perfil.club.nombre} · {perfil.rol.nombre}{perfil.es_admin ? ' · Administrador' : ''}</p>
         <h1 className="display" style={{ fontSize: 40 }}>Hola, {nombre}</h1>
       </div>
 
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+
+      <div className="inicio-grid">
+      <div className="stack" style={{ gap: 14, minWidth: 0 }}>
 
       {perfil.rol.es_jugador && <TarjetaAvisos compacta />}
 
@@ -117,16 +133,72 @@ export default function Inicio() {
         </section>
       )}
 
-      {!instalada() && (
-        <div className="card" style={{ padding: 16 }}>
-          <h2 style={{ margin: '0 0 6px', fontSize: 16 }}>Instala la app en tu teléfono</h2>
-          {esIOS() ? (
-            <p className="small" style={{ margin: 0, lineHeight: 1.5 }}>En Safari, toca el botón <strong>Compartir</strong> (el cuadrado con la flecha) y luego <strong>«Añadir a pantalla de inicio»</strong>.</p>
-          ) : (
-            <p className="small" style={{ margin: 0, lineHeight: 1.5 }}>En Chrome, toca el menú <strong>⋮</strong> y luego <strong>«Instalar app»</strong> o <strong>«Añadir a pantalla de inicio»</strong>.</p>
-          )}
-        </div>
-      )}
+      </div>
+
+      <aside className="stack" style={{ gap: 14, minWidth: 0 }}>
+        {respuestas && (
+          <Link to="/sports-science" className="card" style={{ padding: 16, textDecoration: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <strong style={{ fontSize: 15 }}>Respuestas de hoy</strong>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              {([['Wellness', respuestas.w, respuestas.wAplica], ['RPE', respuestas.r, respuestas.rAplica]] as const).map(([t, n, de]) => (
+                <div key={t} style={{ background: 'var(--bg)', borderRadius: 10, padding: '10px 12px' }}>
+                  <div className="xs muted">{t}</div>
+                  <div className="display" style={{ fontSize: 26 }}>{n}<span className="small muted" style={{ fontFamily: 'inherit' }}> de {de}</span></div>
+                </div>
+              ))}
+            </div>
+            <span className="xs" style={{ color: 'var(--accent)', fontWeight: 600 }}>Ver en el Sports Science Hub →</span>
+          </Link>
+        )}
+
+        {conCalendario && (
+          <section className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }} aria-label="Próximos días">
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <strong style={{ fontSize: 15 }}>Próximos 7 días</strong>
+              <Link to="/calendario" className="xs" style={{ fontWeight: 600 }}>Calendario</Link>
+            </div>
+            {semana.length === 0 ? <span className="small muted">Nada cargado todavía.</span> : semana.slice(0, 8).map((a) => {
+              const d = desdeIso(a.fecha);
+              return (
+                <div key={a.id} className="row" style={{ gap: 10, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+                  <span style={{ width: 44, flex: 'none', textAlign: 'center', background: TIPOS[a.tipo].bg, color: TIPOS[a.tipo].fg, borderRadius: 8, padding: '4px 0' }}>
+                    <span className="xs" style={{ display: 'block', fontWeight: 600 }}>{DIAS_CORTOS[diaSemana(d)]}</span>
+                    <span style={{ fontWeight: 700 }}>{d.getDate()}</span>
+                  </span>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', fontWeight: 600, fontSize: 14, overflowWrap: 'anywhere' }}>{titulo(a)}</span>
+                    <span className="xs muted">{a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio)}{a.lugar ? ` · ${a.lugar}` : ''}</span>
+                  </span>
+                </div>
+              );
+            })}
+            {semana.length > 8 && <Link to="/calendario" className="xs muted">y {semana.length - 8} más…</Link>}
+          </section>
+        )}
+
+        {permisos && (
+          <nav className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 8 }} aria-label="Accesos">
+            <strong style={{ fontSize: 15 }}>Accesos</strong>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {([['/calendario', 'Calendario', 'calendario'], ['/workout-builder', perfil.rol.es_jugador ? 'Mi entreno' : 'Workout Builder', 'workout_builder'], ['/sports-science', 'Sports Science Hub', 'sports_science'], ['/usuarios', 'Usuarios', 'usuarios']] as const)
+                .filter(([, , m]) => puede(permisos, m))
+                .map(([to, t]) => <Link key={to} to={to} className="btn btn-sm" style={{ justifyContent: 'flex-start' }}>{t}</Link>)}
+            </div>
+          </nav>
+        )}
+
+        {!instalada() && (
+          <div className="card" style={{ padding: 16 }}>
+            <h2 style={{ margin: '0 0 6px', fontSize: 16 }}>Instala la app en tu teléfono</h2>
+            {esIOS() ? (
+              <p className="small" style={{ margin: 0, lineHeight: 1.5 }}>En Safari, toca el botón <strong>Compartir</strong> (el cuadrado con la flecha) y luego <strong>«Añadir a pantalla de inicio»</strong>.</p>
+            ) : (
+              <p className="small" style={{ margin: 0, lineHeight: 1.5 }}>En Chrome, toca el menú <strong>⋮</strong> y luego <strong>«Instalar app»</strong> o <strong>«Añadir a pantalla de inicio»</strong>.</p>
+            )}
+          </div>
+        )}
+      </aside>
+      </div>
     </div>
   );
 }

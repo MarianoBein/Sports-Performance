@@ -75,7 +75,7 @@ export default function Ajustes() {
   }
 
   return (
-    <div className="stack" style={{ maxWidth: 760 }}>
+    <div className="stack" style={{ maxWidth: 820, margin: '0 auto', width: '100%' }}>
       <div>
         <p className="muted small" style={{ margin: '0 0 4px' }}>{perfil.club.nombre} · solo administradores del club</p>
         <h1 className="display" style={{ fontSize: 38 }}>Ajustes del club</h1>
@@ -125,7 +125,7 @@ export default function Ajustes() {
           <input id="aj-hora-aviso" type="time" className="input" value={horaAviso} onChange={(e) => setHoraAviso(e.target.value)} />
         </label>
         <p className="xs muted" style={{ margin: 0 }}>A esa hora le llega «Contestá tu wellness» a quien todavía no respondió. El aviso del RPE sale solo cuando se habilita (los minutos de arriba después de la última actividad).</p>
-        <p className="xs muted" style={{ margin: 0 }}>«Días con actividad»: cuando el jugador tiene una actividad deportiva ese día. Un día concreto (por ejemplo, el de partido) se puede marcar como «no aplica» desde el Sports Science Hub.</p>
+        <p className="xs muted" style={{ margin: 0 }}>«Días con actividad»: cuando el jugador tiene una actividad deportiva ese día. Un día concreto (por ejemplo, el de partido) se puede marcar como «no aplica» desde el Workout Builder (tocando Wellness o RPE en ese día) o desde el Sports Science Hub.</p>
         <button type="button" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={async () => {
           const { error } = await supabase.rpc('actualizar_recurrencia', { p_wellness: wModo, p_rpe: rModo, p_retraso: retraso });
           if (!error) { const r2 = await supabase.rpc('actualizar_hora_aviso', { p_hora: horaAviso }); if (r2.error) { setAviso({ ok: false, texto: mensajeError(r2.error) }); return; } }
