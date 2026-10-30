@@ -27,7 +27,7 @@ export default function Inicio() {
 
   useEffect(() => {
     if (!perfil) return;
-    supabase.rpc('estado_hoy').then(({ data }) => setEstado((data as EstadoHoy) ?? null));
+    supabase.rpc('estado_hoy').then(({ data }) => { const e = (data as EstadoHoy) ?? null; setEstado(e && e.es_jugador ? e : null); });
   }, [perfil]);
 
   const cargar = useCallback(async () => {

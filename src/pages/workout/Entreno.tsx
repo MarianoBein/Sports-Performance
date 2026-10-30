@@ -42,7 +42,7 @@ export default function Entreno({ perfilId, soloLectura = false }: { perfilId?: 
 
   useEffect(() => {
     if (soloLectura) return;
-    supabase.rpc('estado_hoy').then(({ data }) => setEstado((data as EstadoHoy) ?? null));
+    supabase.rpc('estado_hoy').then(({ data }) => { const e = (data as EstadoHoy) ?? null; setEstado(e && e.es_jugador ? e : null); });
   }, [soloLectura]);
 
   const ejercicios = (items ?? []).filter((i) => i.tipo === 'ejercicio');
