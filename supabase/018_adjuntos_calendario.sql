@@ -1,6 +1,6 @@
 -- =====================================================================
 -- Calendario: adjuntar imágenes o PDF a una actividad (hasta 5 MB cada uno).
--- Pegar entero en Supabase → SQL Editor → Run (después del 017). Una sola vez.
+-- Pegar entero en Supabase → SQL Editor → Run (después del 017). Se puede correr más de una vez.
 --
 -- Los archivos van a una carpeta privada «adjuntos/<club>/<actividad>/...».
 -- Solo los ve quien ve la actividad, y solo los sube o borra quien puede editarla.
@@ -28,7 +28,7 @@ language sql stable security definer set search_path = public as $$
   )
 $$;
 
-create table public.actividad_adjuntos (
+create table if not exists public.actividad_adjuntos (
   id uuid primary key default gen_random_uuid(),
   actividad_id uuid not null references public.actividades(id) on delete cascade,
   club_id uuid not null references public.clubs(id) on delete cascade,
@@ -39,17 +39,21 @@ create table public.actividad_adjuntos (
   subido_por uuid references public.perfiles(id),
   creado_en timestamptz not null default now()
 );
-create index actividad_adjuntos_act on public.actividad_adjuntos (actividad_id);
+create index if not exists actividad_adjuntos_act on public.actividad_adjuntos (actividad_id);
 alter table public.actividad_adjuntos enable row level security;
+drop policy if exists adjuntos_ver on public.actividad_adjuntos;
 create policy adjuntos_ver on public.actividad_adjuntos for select
   using (club_id = public.mi_club() and public.ve_actividad(auth.uid(), actividad_id));
 
+drop policy if exists adjuntos_archivo_ver on storage.objects;
 create policy adjuntos_archivo_ver on storage.objects for select to authenticated
   using (bucket_id = 'adjuntos' and (storage.foldername(name))[1] = public.mi_club()::text
          and public.ve_actividad(auth.uid(), public._uuid_o_nulo((storage.foldername(name))[2])));
+drop policy if exists adjuntos_archivo_subir on storage.objects;
 create policy adjuntos_archivo_subir on storage.objects for insert to authenticated
   with check (bucket_id = 'adjuntos' and (storage.foldername(name))[1] = public.mi_club()::text
               and public.puede_editar_actividad(auth.uid(), public._uuid_o_nulo((storage.foldername(name))[2])));
+drop policy if exists adjuntos_archivo_borrar on storage.objects;
 create policy adjuntos_archivo_borrar on storage.objects for delete to authenticated
   using (bucket_id = 'adjuntos' and (storage.foldername(name))[1] = public.mi_club()::text
          and public.puede_editar_actividad(auth.uid(), public._uuid_o_nulo((storage.foldername(name))[2])));
