@@ -52,6 +52,10 @@ function CodigoListo({ codigo }: { codigo: string }) {
           {copiado ? 'Copiado' : 'Copiar mensaje'}
         </button>
       </div>
+      <p className="small muted" style={{ margin: 0 }}>
+        ¿El administrador sos vos? No hace falta otra cuenta: tocá el nombre de la organización arriba a la izquierda →
+        «Unirme a otra organización con un código».
+      </p>
     </>
   );
 }

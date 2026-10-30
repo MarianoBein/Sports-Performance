@@ -32,10 +32,14 @@ export default async function handler(req, res) {
     res.status(403).json({ error: e.message || 'No tenés permiso para hacer esto.' });
     return;
   }
+  // Desde el 020 la base devuelve el id de la CUENTA (una cuenta puede tener perfiles en varias
+  // organizaciones). Si todavía devuelve el nombre (base sin el 020), cuenta y perfil son lo mismo.
+  const devuelto = await r1.json().catch(() => null);
+  const cuenta = typeof devuelto === 'string' && /^[0-9a-f-]{36}$/i.test(devuelto) ? devuelto : perfil;
 
   // 2) Con la clave secreta: pone la contraseña temporal.
   const clave = claveTemporal();
-  const r2 = await fetch(`${URL_SB}/auth/v1/admin/users/${perfil}`, {
+  const r2 = await fetch(`${URL_SB}/auth/v1/admin/users/${cuenta}`, {
     method: 'PUT',
     headers: { apikey: SECRETA, 'Content-Type': 'application/json' }, // las claves sb_secret_ van solo en «apikey»
     body: JSON.stringify({ password: clave }),

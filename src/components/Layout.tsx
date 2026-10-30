@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useSesion } from '../lib/sesion';
 import { puede, type Modulo } from '../lib/permisos';
+import MenuOrganizacion from './MenuOrganizacion';
 
 const ENLACES: { to: string; nombre: string; corto: string; modulo?: Modulo; icono: ReactNode }[] = [
   { to: '/', nombre: 'Inicio', corto: 'Inicio', icono: <path d="M4 11l8-7 8 7v9H4z" /> },
@@ -22,7 +23,7 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <>
       <header className="topbar">
-        <span className="brand">{perfil?.club.nombre ?? 'Sports Performance'}</span>
+        <MenuOrganizacion />
         <nav className="topnav" aria-label="Principal">
           {visibles.map((e) => (
             <NavLink key={e.to} to={e.to} end={e.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>{e.nombre}</NavLink>

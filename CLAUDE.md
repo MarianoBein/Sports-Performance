@@ -4,6 +4,7 @@
 - Producto: app multi-club y multideporte. Prueba gratuita: app web instalable (PWA) + Supabase free (Frankfurt) + Vercel free.
 - Stack: Vite + React + TypeScript + React Router + supabase-js. CSS propio en `src/styles.css` (tokens del boceto: fondo #F6F5F2, tinta #16181D, acento #B3122E, Barlow Condensed + Inter).
 - Base de datos: SQL numerado en `supabase/NNN_*.sql`; el usuario lo pega en el SQL Editor. Nunca pedirle la service_role ni la contraseña de la BD.
+- Una cuenta puede estar en varias organizaciones: un perfil por organización (`perfiles.user_id` = cuenta). En SQL usar `yo()` (perfil activo), nunca `auth.uid()` para el perfil. Cambio con `cambiar_organizacion`, alta extra con `canjear_codigo`.
 - Seguridad: todas las tablas con RLS por club (`mi_club()`, `soy_admin()`); las escrituras sensibles van por funciones `security definer` que registran en `registro_cambios`.
 - Permisos por módulo: `calendario`, `sports_science`, `workout_builder`, `estadisticas`, `usuarios`; niveles `sin`, `ver`, `propio`, `editar` + `exporta`. Admin = todo.
 - Nombres de módulos en la UI: Calendario, Workout Builder, Sports Science Hub, Usuarios.

@@ -47,8 +47,12 @@ export default function Alta() {
     try {
       if (!sesion) {
         const { data, error } = await supabase.auth.signUp({ email: email.trim(), password: clave, options: { data: { nombre } } });
-        if (error) throw error;
-        if (!data.session) {
+        if (error && /already|registered|exists/i.test(error.message)) {
+          // Ya tiene cuenta (por ejemplo, está en otra organización): entra con su clave y se suma a esta.
+          const ent = await supabase.auth.signInWithPassword({ email: email.trim(), password: clave });
+          if (ent.error) throw new Error('Ese email ya tiene cuenta. Poné la misma contraseña que usás para entrar y te sumamos a esta organización.');
+        } else if (error) throw error;
+        else if (!data.session) {
           setError('Te enviamos un email para confirmar la cuenta. Ábrelo y luego vuelve a entrar con tu código.');
           setOcupado(false);
           return;

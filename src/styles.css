@@ -136,3 +136,17 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 
 .solo-escritorio { }
 @media (max-width: 760px) { .solo-escritorio { display: none; } }
+
+/* Menú de organización (una cuenta en varias organizaciones) */
+.org-menu { position: relative; }
+.org-boton { background: transparent; border: 0; color: #fff; padding: 0; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.org-boton svg { opacity: .7; }
+.org-lista { position: absolute; top: calc(100% + 10px); left: 0; z-index: 60; width: min(320px, calc(100vw - 32px)); background: var(--card); color: var(--ink); border-radius: 14px; box-shadow: 0 12px 32px rgba(22,24,29,.22); padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+.org-titulo { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 8px 10px 4px; }
+.org-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; background: transparent; border: 0; border-radius: 10px; padding: 9px 10px; font-size: 14px; color: var(--ink); }
+.org-item span { font-size: 12px; color: var(--muted); }
+button.org-item { cursor: pointer; }
+button.org-item:hover { background: #F1EFEA; }
+.org-item.actual { background: #F6F5F2; box-shadow: inset 3px 0 0 var(--accent); }
+.org-unirme { margin-top: 4px; border-top: 1px solid #ECEAE5; border-radius: 0 0 10px 10px; color: var(--accent); font-weight: 600; font-size: 13px; }
+.org-error { color: var(--accent); font-size: 12px; padding: 4px 10px; }
