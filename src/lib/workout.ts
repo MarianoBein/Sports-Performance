@@ -88,7 +88,7 @@ export type Item = {
   config: Config;
 };
 // Ejercicio: unidad reps o segundos. Cuestionario: formato y opciones.
-export type Config = { unidad?: 'reps' | 'seg'; formato?: 'escala' | 'opciones' | 'texto'; opciones?: string[]; min?: number; max?: number };
+export type Config = { unidad?: 'reps' | 'seg'; formato?: 'escala' | 'opciones' | 'texto'; opciones?: string[]; min?: number; max?: number; programa?: string };
 export type Sesion = { id: string; fecha: string; destinos: Destino[]; items: Item[] };
 
 export const BREAKS_SUGERIDOS = ['Activación', 'Bloque principal', 'Accesorios'];

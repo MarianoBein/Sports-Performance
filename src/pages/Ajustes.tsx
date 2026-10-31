@@ -40,6 +40,8 @@ export default function Ajustes() {
   const [retraso, setRetraso] = useState(perfil?.club.rpe_retraso_min ?? 30);
   const [horaAviso, setHoraAviso] = useState((perfil?.club.hora_aviso_wellness ?? '09:00').slice(0, 5));
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+  const [gps, setGps] = useState(!!perfil?.club.fuentes?.gps);
+  const [fuerza, setFuerza] = useState(!!perfil?.club.fuentes?.fuerza);
 
   if (!perfil) return null;
   if (!perfil.es_admin) return <Navigate to="/" replace />;
@@ -129,6 +131,29 @@ export default function Ajustes() {
         <button type="button" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={async () => {
           const { error } = await supabase.rpc('actualizar_recurrencia', { p_wellness: wModo, p_rpe: rModo, p_retraso: retraso });
           if (!error) { const r2 = await supabase.rpc('actualizar_hora_aviso', { p_hora: horaAviso }); if (r2.error) { setAviso({ ok: false, texto: mensajeError(r2.error) }); return; } }
+          if (error) setAviso({ ok: false, texto: mensajeError(error) }); else { await recargar(); setAviso({ ok: true, texto: 'Guardado.' }); }
+        }}>Guardar</button>
+      </section>
+
+      <section className="card stack" style={{ padding: 16, gap: 12 }} aria-label="Fuentes de datos">
+        <h2 style={{ margin: 0, fontSize: 16 }}>Fuentes de datos</h2>
+        <p className="small muted" style={{ margin: 0 }}>
+          Marcá solo lo que tiene tu equipo. Lo que no esté marcado no aparece en el Sports Science Hub, así los informes quedan completos con lo que sí medís (wellness, RPE y carga).
+        </p>
+        {([
+          ['GPS', 'Volumen e intensidad de cada sesión (por ejemplo, Wimu).', gps, setGps],
+          ['Plataforma de fuerza', 'Tests de salto, fuerza y asimetrías (por ejemplo, VALD).', fuerza, setFuerza],
+        ] as const).map(([t, sub, v, set]) => (
+          <label key={t} className="row" style={{ gap: 12, cursor: 'pointer', alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+            <input type="checkbox" checked={v} onChange={(e) => set(e.target.checked)} style={{ width: 20, height: 20, marginTop: 2, flex: 'none', accentColor: '#16181D' }} />
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <strong style={{ fontSize: 14 }}>{t}</strong>
+              <span className="xs muted">{sub}</span>
+            </span>
+          </label>
+        ))}
+        <button type="button" className="btn btn-primary" style={{ alignSelf: 'flex-start' }} onClick={async () => {
+          const { error } = await supabase.rpc('actualizar_fuentes', { p_gps: gps, p_fuerza: fuerza });
           if (error) setAviso({ ok: false, texto: mensajeError(error) }); else { await recargar(); setAviso({ ok: true, texto: 'Guardado.' }); }
         }}>Guardar</button>
       </section>

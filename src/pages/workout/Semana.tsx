@@ -552,7 +552,8 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                               {!compacto && it.descanso_seg != null && <span className="xs muted">Descanso {tiempoTexto(it.descanso_seg)}</span>}
                               {!compacto && it.nota && <span className="xs" style={{ color: '#6B4E00' }}>Nota: {it.nota}</span>}
                               {clave !== 'equipo' && ef.propio && it.modificado && <span className="xs" style={{ color: '#43307E', fontWeight: 600 }}>Cambiado en este plan</span>}
-                              {clave !== 'equipo' && ef.propio && !it.origen_id && <span className="xs" style={{ color: '#43307E', fontWeight: 600 }}>Solo en este plan</span>}
+                              {it.config?.programa ? <span className="xs" style={{ color: '#1E3A8A', fontWeight: 600 }}>Programa: {it.config.programa}</span>
+                                : clave !== 'equipo' && ef.propio && !it.origen_id && <span className="xs" style={{ color: '#43307E', fontWeight: 600 }}>Solo en este plan</span>}
                             </button>
                           );
                         })}
@@ -659,7 +660,7 @@ function DialogoConflictos({ lista, nombrePlan, etiquetaDia, onCerrar, onAplicar
   );
 }
 
-function EditorBreak({ item, sugeridos, onCerrar, onGuardar }: { item: Item | null; sugeridos: string[]; onCerrar: () => void; onGuardar: (it: Item) => void }) {
+export function EditorBreak({ item, sugeridos, onCerrar, onGuardar }: { item: Item | null; sugeridos: string[]; onCerrar: () => void; onGuardar: (it: Item) => void }) {
   const [nombre, setNombre] = useState(item?.nombre ?? '');
   const ok = nombre.trim().length > 0;
   const guardar = () => {
@@ -689,7 +690,7 @@ function EditorBreak({ item, sugeridos, onCerrar, onGuardar }: { item: Item | nu
   );
 }
 
-function EditorNota({ item, onCerrar, onGuardar }: { item: Item | null; onCerrar: () => void; onGuardar: (it: Item) => void }) {
+export function EditorNota({ item, onCerrar, onGuardar }: { item: Item | null; onCerrar: () => void; onGuardar: (it: Item) => void }) {
   const [texto, setTexto] = useState(item?.nota || item?.nombre || '');
   const ok = texto.trim().length > 0;
   const guardar = () => {
@@ -715,7 +716,7 @@ function EditorNota({ item, onCerrar, onGuardar }: { item: Item | null; onCerrar
   );
 }
 
-function EditorPregunta({ item, onCerrar, onGuardar }: { item: Item | null; onCerrar: () => void; onGuardar: (it: Item) => void }) {
+export function EditorPregunta({ item, onCerrar, onGuardar }: { item: Item | null; onCerrar: () => void; onGuardar: (it: Item) => void }) {
   const [pregunta, setPregunta] = useState(item?.nombre ?? '');
   const [formato, setFormato] = useState<'escala' | 'opciones' | 'texto'>(item?.config?.formato ?? 'escala');
   const [min, setMin] = useState(String(item?.config?.min ?? 0));

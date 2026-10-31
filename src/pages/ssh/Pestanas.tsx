@@ -6,6 +6,13 @@ import {
   type Datos, type Metrica, type Periodo,
 } from '../../lib/carga';
 import { Cargando, FiltroGrupo, Leyenda, SelectorPeriodo, Valor, filtrar, useDatos } from './comun';
+import { useSesion } from '../../lib/sesion';
+
+// Qué mide este club (Ajustes → Fuentes de datos). Lo que no tiene no se muestra.
+function useFuentes() {
+  const { perfil } = useSesion();
+  return { gps: !!perfil?.club.fuentes?.gps, fuerza: !!perfil?.club.fuentes?.fuerza };
+}
 import Grafico from './Grafico';
 
 const WELLNESS: Metrica[] = ['preparacion', 'sueno', 'fatiga', 'estres', 'dolor'];
@@ -80,6 +87,7 @@ export function PestanaSesion() {
   const [verRef, setVerRef] = useState(false);
   const [filtro, setFiltro] = useState('');
   const { datos, error } = useDatos(fecha, fecha);
+  const { gps } = useFuentes();
   const md = datos ? etiquetaMD(fecha, datos.partidos) : null;
   const jugadores = datos ? filtrar(datos, filtro) : [];
   const prom = (m: Metrica) => resumen(jugadores.map((j) => datos!.dia(j.id, fecha)[m]).filter((v): v is number => v != null));
@@ -101,7 +109,7 @@ export function PestanaSesion() {
       {!datos ? <Cargando error={error} /> : (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
-            {([['Preparación', prom('preparacion'), 2, 'de 1 a 5'], ['Volumen', null, 0, 'llega con Wimu'], ['Intensidad', null, 0, 'llega con Wimu'], ['Esfuerzo', prom('esfuerzo'), 0, 'RPE × minutos']] as const).map(([t, r, d, sub]) => (
+            {([['Preparación', prom('preparacion'), 2, 'de 1 a 5'], ...(gps ? [['Volumen', null, 0, 'sin datos del GPS'], ['Intensidad', null, 0, 'sin datos del GPS']] as const : []), ['Esfuerzo', prom('esfuerzo'), 0, 'RPE × minutos']] as const).map(([t, r, d, sub]) => (
               <div key={t} className="card" style={{ padding: 14, textAlign: 'center' }}>
                 <div className="small muted">{t}</div>
                 <div className="display" style={{ fontSize: 30 }}>{r ? fmt(r.media, d) : '—'}</div>
@@ -111,7 +119,7 @@ export function PestanaSesion() {
           </div>
           <div className="card table-wrap" style={{ padding: 0 }}>
             <table className="tbl">
-              <thead><tr><th style={{ paddingLeft: 14 }}>Jugador</th><th>Preparación</th><th>Volumen</th><th>Volumen/min</th><th>Intensidad</th><th>Intensidad/min</th><th>Esfuerzo</th></tr></thead>
+              <thead><tr><th style={{ paddingLeft: 14 }}>Jugador</th><th>Preparación</th>{gps && <><th>Volumen</th><th>Volumen/min</th><th>Intensidad</th><th>Intensidad/min</th></>}<th>Esfuerzo</th></tr></thead>
               <tbody>
                 {jugadores.map((j) => {
                   const d = datos.dia(j.id, fecha);
@@ -121,7 +129,7 @@ export function PestanaSesion() {
                     <tr key={j.id} style={{ borderTop: '1px solid var(--line-soft)' }}>
                       <td style={{ paddingLeft: 14, fontWeight: 500 }}>{j.nombre}</td>
                       <td>{!d.wAplica && d.preparacion == null ? <span className="xs muted">No aplica</span> : <Valor v={d.preparacion} tono={semaforo(d.preparacion, rp, 'preparacion')} ref={rp} d={2} mostrarRef={verRef} />}</td>
-                      <td className="muted">—</td><td className="muted">—</td><td className="muted">—</td><td className="muted">—</td>
+                      {gps && <><td className="muted">—</td><td className="muted">—</td><td className="muted">—</td><td className="muted">—</td></>}
                       <td>{!d.rAplica && d.esfuerzo == null ? <span className="xs muted">No aplica</span> : <Valor v={d.esfuerzo} tono={semaforo(d.esfuerzo, re, 'esfuerzo')} ref={re} d={0} mostrarRef={verRef} />}</td>
                     </tr>
                   );
@@ -129,7 +137,7 @@ export function PestanaSesion() {
               </tbody>
             </table>
           </div>
-          <Leyenda extra={<span>Se compara con la media del propio jugador en días {md ?? 'del mismo tipo'} de los últimos 90 días. Volumen e intensidad se completan cuando conectemos Wimu.</span>} />
+          <Leyenda extra={<span>Se compara con la media del propio jugador en días {md ?? 'del mismo tipo'} de los últimos 90 días.{gps ? ' Volumen e intensidad se completan cuando conectemos el GPS.' : ''}</span>} />
         </>
       )}
     </div>
@@ -144,6 +152,7 @@ export function PestanaSemana() {
   const desdeRef = iso(sumarDias(desdeIso(periodo.desde), -largo * 4));
   const { datos, error } = useDatos(desdeRef, periodo.hasta);
   const dias = useMemo(() => diasEntre(periodo.desde, periodo.hasta), [periodo]);
+  const { gps } = useFuentes();
 
   const totalJugador = (j: string, ds: string[]) => {
     const vals = ds.map((f) => datos!.dia(j, f).esfuerzo);
@@ -174,7 +183,7 @@ export function PestanaSemana() {
             <div className="card table-wrap" style={{ padding: 0 }}>
               <table className="tbl">
                 <thead><tr>
-                  <th style={{ paddingLeft: 14 }}>Jugador</th><th>Esfuerzo total</th><th>Media 4 periodos anteriores</th><th>Días con esfuerzo</th><th>Preparación media</th><th>Volumen</th><th>Intensidad</th>
+                  <th style={{ paddingLeft: 14 }}>Jugador</th><th>Esfuerzo total</th><th>Media 4 periodos anteriores</th><th>Días con esfuerzo</th><th>Preparación media</th>{gps && <><th>Volumen</th><th>Intensidad</th></>}
                 </tr></thead>
                 <tbody>
                   {js.map((j) => {
@@ -190,7 +199,7 @@ export function PestanaSemana() {
                         <td className="small" style={{ fontVariantNumeric: 'tabular-nums' }}>{fmt(ref.media, 0)}{ref.n < 4 && ref.n > 0 ? <span className="xs muted"> ({ref.n} de 4)</span> : ''}</td>
                         <td className="small">{t.n} de {largo}</td>
                         <td className="small">{fmt(resumen(wCon).media, 2)} <span className="xs muted">({wCon.length} de {wAplica.length})</span></td>
-                        <td className="muted">—</td><td className="muted">—</td>
+                        {gps && <><td className="muted">—</td><td className="muted">—</td></>}
                       </tr>
                     );
                   })}
@@ -198,7 +207,7 @@ export function PestanaSemana() {
               </table>
             </div>
             <p className="xs muted" style={{ margin: 0 }}>
-              El esfuerzo total suma solo los días con dato (un día sin dato no cuenta como cero). Se compara con la media de los 4 periodos anteriores del mismo largo: rojo si está más de 1 desvío por encima, azul si más de 1 por debajo. Volumen e intensidad llegan con Wimu.
+              El esfuerzo total suma solo los días con dato (un día sin dato no cuenta como cero). Se compara con la media de los 4 periodos anteriores del mismo largo: rojo si está más de 1 desvío por encima, azul si más de 1 por debajo.{gps ? ' Volumen e intensidad llegan cuando conectemos el GPS.' : ''}
             </p>
           </>
         );
@@ -215,6 +224,7 @@ export function PestanaPerfil() {
   const [jugador, setJugador] = useState('');
   const dias = useMemo(() => diasEntre(desde, hoy), [desde, hoy]);
   const j = jugador || datos?.jugadores[0]?.id || '';
+  const { fuerza } = useFuentes();
 
   const movil = (m: Metrica) => dias.map((f) => {
     const xs: number[] = [];
@@ -246,10 +256,10 @@ export function PestanaPerfil() {
               puntos={dias.map((f) => ({ fecha: f, valor: datos.dia(j, f).esfuerzo }))}
               linea={movil('esfuerzo')} lineaNombre={`media móvil ${VENTANA_MOVIL} días`} />
           </div>
-          <div className="card" style={{ padding: 16 }}>
+          {fuerza && <div className="card" style={{ padding: 16 }}>
             <strong>Tests</strong>
-            <p className="small muted" style={{ margin: '6px 0 0' }}>Peso, altura de salto, 10 m y asimetría (cambio de dirección) se cargan cuando conectemos VALD. Cada test se va a comparar con el anterior y con el mejor del jugador, marcando solo los cambios mayores que el cambio mínimo relevante.</p>
-          </div>
+            <p className="small muted" style={{ margin: '6px 0 0' }}>Peso, altura de salto, 10 m y asimetría (cambio de dirección) se cargan cuando conectemos la plataforma de fuerza. Cada test se va a comparar con el anterior y con el mejor del jugador, marcando solo los cambios mayores que el cambio mínimo relevante.</p>
+          </div>}
         </>
       )}
     </div>

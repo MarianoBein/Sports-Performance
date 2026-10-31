@@ -3,7 +3,8 @@ import { supabase, mensajeError } from '../lib/supabase';
 import { useSesion } from '../lib/sesion';
 import { fechaLarga, hoyIso, iso, desdeIso, sumarDias } from '../lib/calendario';
 import { PestanaPerfil, PestanaSemana, PestanaSesion, PestanaWellness } from './ssh/Pestanas';
-import { COLORES_5, TEXTO_5, bienDe, colorRpe, type Pregunta } from '../lib/wellness';
+import { COLORES_5, PREGUNTAS, RPE, TEXTO_5, bienDe, colorRpe, type Pregunta } from '../lib/wellness';
+import Dialogo from '../components/Dialogo';
 
 type Fila = {
   perfil_id: string; nombre: string; sueno: number | null; fatiga: number | null; estres: number | null; dolor: number | null;
@@ -64,6 +65,7 @@ function VistaDia({ edita }: { edita: boolean }) {
   const [minEquipo, setMinEquipo] = useState<number | null>(null);
   const [equipo, setEquipo] = useState<Record<Cuest, boolean | null>>({ wellness: null, rpe: null });
   const [error, setError] = useState('');
+  const [corrigiendo, setCorrigiendo] = useState<Fila | null>(null);
 
   const cargar = useCallback(async () => {
     const [r, m, ex] = await Promise.all([
@@ -160,6 +162,7 @@ function VistaDia({ edita }: { edita: boolean }) {
               <th scope="col">Minutos</th>
               <th scope="col">Esfuerzo</th>
               {edita && <th scope="col">Excepción del jugador</th>}
+              {edita && <th scope="col"><span className="sr-only">Corregir</span></th>}
             </tr>
           </thead>
           <tbody>
@@ -204,17 +207,109 @@ function VistaDia({ edita }: { edita: boolean }) {
                     </div>
                   </td>
                 )}
+                {edita && (
+                  <td>
+                    {fecha <= hoyIso() && (
+                      <button type="button" className="btn btn-sm btn-ghost" style={{ height: 32 }} aria-label={`Corregir las respuestas de ${f.nombre}`} onClick={() => setCorrigiendo(f)}>
+                        Corregir
+                      </button>
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
-            {filas.length === 0 && !error && <tr><td colSpan={10} className="muted">Todavía no hay jugadores en el club.</td></tr>}
+            {filas.length === 0 && !error && <tr><td colSpan={11} className="muted">Todavía no hay jugadores en el club.</td></tr>}
           </tbody>
         </table>
       </div>
       <p className="xs muted" style={{ margin: 0 }}>
         Sueño: 5 = dormí muy bien. Fatiga, estrés y dolor muscular: 5 = muy mal. El color siempre indica si está bien (verde) o mal (rojo).
         Preparación = promedio de las cuatro con el mismo sentido (5 = mejor). «—» = sin respuesta; nunca cuenta como cero. «No aplica» no cuenta como faltante.
+        {edita && ' «Corregir» cambia o borra lo que respondió un jugador ese día; queda anotado en el registro de cambios.'}
       </p>
+      {corrigiendo && <DialogoCorregir fila={corrigiendo} fecha={fecha} onCerrar={() => setCorrigiendo(null)} onListo={() => { setCorrigiendo(null); cargar(); }} />}
     </div>
+  );
+}
+
+// Corregir o borrar el wellness y el RPE de un jugador en un día (por ejemplo, respuestas en broma).
+function DialogoCorregir({ fila, fecha, onCerrar, onListo }: { fila: Fila; fecha: string; onCerrar: () => void; onListo: () => void }) {
+  const [w, setW] = useState<Record<Pregunta['clave'], number | null>>({ sueno: fila.sueno, fatiga: fila.fatiga, estres: fila.estres, dolor: fila.dolor });
+  const [rpe, setRpe] = useState<number | null>(fila.rpe);
+  const [motivo, setMotivo] = useState('');
+  const [error, setError] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+  const wVacio = Object.values(w).every((v) => v === null);
+  const wIncompleto = !wVacio && Object.values(w).some((v) => v === null);
+  const tenia = fila.sueno !== null;
+
+  async function guardar() {
+    if (wIncompleto) { setError('Completá las cuatro respuestas del wellness, o borralo entero.'); return; }
+    setError(''); setOcupado(true);
+    const cambioW = (['sueno', 'fatiga', 'estres', 'dolor'] as const).some((k) => w[k] !== fila[k]);
+    if (cambioW) {
+      const r = await supabase.rpc('corregir_wellness', { p_perfil: fila.perfil_id, p_fecha: fecha, p_sueno: w.sueno, p_fatiga: w.fatiga, p_estres: w.estres, p_dolor: w.dolor, p_motivo: motivo });
+      if (r.error) { setOcupado(false); setError(mensajeError(r.error)); return; }
+    }
+    if (rpe !== fila.rpe) {
+      const r = await supabase.rpc('corregir_rpe', { p_perfil: fila.perfil_id, p_fecha: fecha, p_valor: rpe, p_motivo: motivo });
+      if (r.error) { setOcupado(false); setError(mensajeError(r.error)); return; }
+    }
+    onListo();
+  }
+
+  return (
+    <Dialogo titulo={`Corregir a ${fila.nombre}`} onCerrar={onCerrar} ancho={560}
+      pie={<>
+        <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
+        <button type="button" className="btn btn-primary" disabled={ocupado} onClick={guardar}>Guardar</button>
+      </>}>
+      <div className="stack" style={{ gap: 14 }}>
+        <p className="small muted" style={{ margin: 0 }}>{fechaLarga(fecha)}. Sueño: 5 = durmió muy bien. Fatiga, estrés y dolor: 5 = muy mal (igual que en la tabla).</p>
+
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <strong>Wellness</strong>
+          {!wVacio && <button type="button" className="btn btn-sm btn-ghost link-danger" onClick={() => setW({ sueno: null, fatiga: null, estres: null, dolor: null })}>Borrar wellness del día</button>}
+          {wVacio && tenia && <span className="xs" style={{ color: 'var(--accent)', fontWeight: 600 }}>Se va a borrar</span>}
+        </div>
+        {PREGUNTAS.map((q) => (
+          <div key={q.clave} className="stack" style={{ gap: 6 }}>
+            <span className="small" style={{ fontWeight: 600 }}>{q.titulo}{w[q.clave] !== null && <span className="muted" style={{ fontWeight: 400 }}> · {q.frases[bienDe(q.clave, w[q.clave] as number) - 1]}</span>}</span>
+            <div className="row" role="group" aria-label={q.titulo} style={{ gap: 6 }}>
+              {[1, 2, 3, 4, 5].map((v) => {
+                const on = w[q.clave] === v; const b = bienDe(q.clave, v);
+                return (
+                  <button key={v} type="button" aria-pressed={on} onClick={() => setW({ ...w, [q.clave]: v })}
+                    style={{ width: 44, height: 38, borderRadius: 10, fontWeight: 700, cursor: 'pointer', border: on ? '2px solid #16181D' : '1.5px solid var(--field)',
+                      background: on ? COLORES_5[b - 1] : 'var(--card)', color: on ? TEXTO_5[b - 1] : 'var(--ink)' }}>{v}</button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        <div className="row" style={{ justifyContent: 'space-between', marginTop: 4 }}>
+          <strong>RPE</strong>
+          {rpe !== null && <button type="button" className="btn btn-sm btn-ghost link-danger" onClick={() => setRpe(null)}>Borrar RPE del día</button>}
+          {rpe === null && fila.rpe !== null && <span className="xs" style={{ color: 'var(--accent)', fontWeight: 600 }}>Se va a borrar</span>}
+        </div>
+        <div className="row" role="group" aria-label="RPE" style={{ gap: 6 }}>
+          {[...RPE].reverse().map((r) => {
+            const on = rpe === r.valor;
+            return (
+              <button key={r.valor} type="button" aria-pressed={on} title={r.frase} onClick={() => setRpe(r.valor)}
+                style={{ width: 40, height: 38, borderRadius: 10, fontWeight: 700, cursor: 'pointer', border: on ? '2px solid #16181D' : '1.5px solid var(--field)',
+                  background: on ? r.color : 'var(--card)', color: on ? r.texto : 'var(--ink)' }}>{r.valor}</button>
+            );
+          })}
+        </div>
+
+        <label className="field"><span>Motivo (opcional, queda en el registro)</span>
+          <input className="input" maxLength={200} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: respondió en broma, lo hablamos en el vestuario" />
+        </label>
+        {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+      </div>
+    </Dialogo>
   );
 }
 

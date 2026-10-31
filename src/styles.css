@@ -150,3 +150,13 @@ button.org-item:hover { background: #F1EFEA; }
 .org-item.actual { background: #F6F5F2; box-shadow: inset 3px 0 0 var(--accent); }
 .org-unirme { margin-top: 4px; border-top: 1px solid #ECEAE5; border-radius: 0 0 10px 10px; color: var(--accent); font-weight: 600; font-size: 13px; }
 .org-error { color: var(--accent); font-size: 12px; padding: 4px 10px; }
+
+/* Calendario: barra flotante de selección y deshacer */
+.cal-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100vw - 32px); padding: 8px 8px 8px 16px; border-radius: 14px; background: var(--ink); color: #fff; font-size: 13px; box-shadow: 0 10px 30px rgba(22,24,29,.28); }
+.cal-toast button { height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid #3A3D45; background: transparent; color: #fff; font-weight: 600; font-size: 13px; cursor: pointer; }
+.cal-toast button:hover { background: #2B2E36; }
+@media (max-width: 760px) { .cal-toast { bottom: 84px; } }
+
+/* Programas plantilla */
+.prog-item { width: 100%; border: 0; border-radius: 8px; padding: 6px 8px; text-align: left; display: flex; flex-direction: column; gap: 1px; cursor: grab; overflow-wrap: anywhere; }

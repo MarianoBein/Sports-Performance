@@ -54,13 +54,20 @@ export default function Calendario() {
   const [form, setForm] = useState<{ actividad?: Actividad; fecha?: string } | null>(null);
   const [suscribir, setSuscribir] = useState(false);
   const [error, setError] = useState('');
-  // Selección múltiple: ⌘/Ctrl/Mayús + clic en actividades, o Mayús + clic en el número de un día (días enteros).
+  // Como en el Workout Builder: clic elige, doble clic abre, arrastrar mueve (⌥/Alt copia),
+  // ⌘C / ⌘V copian y pegan en el día marcado, ⌘Z deshace, Supr borra.
   const [sel, setSel] = useState<string[]>([]);
   const [clip, setClip] = useState<Actividad[]>([]);
-  const [diaHover, setDiaHover] = useState<string | null>(null);
+  const [diaActivo, setDiaActivo] = useState<string | null>(null);
   const [diaAncla, setDiaAncla] = useState<string | null>(null);
-  const [confirmarBorrar, setConfirmarBorrar] = useState(false);
+  const [arrastre, setArrastre] = useState<{ ids: string[]; desde: string } | null>(null);
+  const [soltarEn, setSoltarEn] = useState<string | null>(null);
+  const [pasos, setPasos] = useState<{ texto: string; revertir: () => Promise<number> }[]>([]);
+  const [aviso, setAviso] = useState('');
+  const [menu, setMenu] = useState<Actividad | null>(null);
   const [trabajando, setTrabajando] = useState('');
+  const tactil = useMemo(() => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches, []);
+  const pulsacion = useRef<number | null>(null);
 
   const rango = useMemo(() => {
     if (vista === 'mes') {
@@ -112,56 +119,144 @@ export default function Calendario() {
       ? (() => { const a = lunesDe(ref), b = sumarDias(a, 6); return `${a.getDate()} ${a.getMonth() !== b.getMonth() ? MESES[a.getMonth()] + ' ' : ''}al ${b.getDate()} de ${MESES[b.getMonth()]}`; })()
       : fechaLarga(iso(ref));
 
+  const puedeEditarAct = (a: Actividad) => nivel === 'editar' || (nivel === 'propio' && a.creado_por === perfil?.id);
+  const datosDe = (a: Actividad, fecha: string) => ({
+    nombre: a.nombre, tipo: a.tipo, fecha, todo_el_dia: a.todo_el_dia, hora_inicio: a.hora_inicio, hora_fin: a.hora_fin,
+    lugar: a.lugar, direccion: a.direccion, es_partido: a.es_partido, rival: a.rival, fuera: a.fuera,
+  });
+  const corrido = (f: string, n: number) => iso(sumarDias(desdeIso(f), n));
+  const diasDeA = (a: string, b: string) => Math.round((desdeIso(b).getTime() - desdeIso(a).getTime()) / 86400000);
+  const plural = (n: number, uno: string, varios: string) => `${n} ${n === 1 ? uno : varios}`;
+
+  // Cada acción guarda cómo deshacerse (⌘Z o «Deshacer»).
+  async function hacer(texto: string, accion: () => Promise<{ fallas: number; revertir: () => Promise<number> }>) {
+    setTrabajando(`${texto}…`); setError('');
+    const { fallas, revertir } = await accion();
+    setTrabajando('');
+    setPasos((p) => [...p, { texto, revertir }].slice(-30));
+    setAviso(fallas ? `${texto}, pero ${plural(fallas, 'no se pudo', 'no se pudieron')} (solo podés tocar las que podés editar).` : `${texto}.`);
+    await cargar();
+  }
+  // Mover o copiar actividades n días (las copias mantienen horarios, lugar y a quién va).
+  function moverOCopiar(ids: string[], n: number, copiar: boolean) {
+    const xs = acts.filter((a) => ids.includes(a.id) && (copiar || puedeEditarAct(a)));
+    if (!xs.length || (!copiar && n === 0)) return;
+    void hacer(`${copiar ? 'Copiada' : 'Movida'}${xs.length > 1 ? `s ${xs.length} actividades` : ''}`, async () => {
+      let fallas = 0; const nuevas: string[] = []; const movidas: Actividad[] = [];
+      for (const a of xs) {
+        const { data, error } = await supabase.rpc('guardar_actividad', { p_id: copiar ? null : a.id, p_datos: datosDe(a, corrido(a.fecha, n)), p_destinos: a.destinos });
+        if (error) fallas++; else if (copiar) nuevas.push(data as string); else movidas.push(a);
+      }
+      if (copiar) setSel(nuevas);
+      return {
+        fallas,
+        revertir: async () => {
+          let f = 0;
+          for (const id of nuevas) { const r = await supabase.rpc('eliminar_actividad', { p_id: id }); if (r.error) f++; }
+          for (const a of movidas) { const r = await supabase.rpc('guardar_actividad', { p_id: a.id, p_datos: datosDe(a, a.fecha), p_destinos: a.destinos }); if (r.error) f++; }
+          return f;
+        },
+      };
+    });
+  }
+  function borrarSel(ids = sel) {
+    const xs = acts.filter((a) => ids.includes(a.id) && puedeEditarAct(a));
+    if (!xs.length) return;
+    setSel([]);
+    void hacer(`Borrada${xs.length > 1 ? `s ${xs.length} actividades` : ''}`, async () => {
+      let fallas = 0; const borradas: string[] = [];
+      for (const a of xs) { const { error } = await supabase.rpc('eliminar_actividad', { p_id: a.id }); if (error) fallas++; else borradas.push(a.id); }
+      return {
+        fallas,
+        revertir: async () => { let f = 0; for (const id of borradas) { const r = await supabase.rpc('restaurar_actividad', { p_id: id }); if (r.error) f++; } return f; },
+      };
+    });
+  }
+  async function deshacer() {
+    const ultimo = pasos[pasos.length - 1];
+    if (!ultimo || trabajando) return;
+    setPasos((p) => p.slice(0, -1)); setTrabajando('Deshaciendo…'); setSel([]);
+    const f = await ultimo.revertir();
+    setTrabajando('');
+    setAviso(f ? `Deshecho en parte: ${plural(f, 'cambio no se pudo', 'cambios no se pudieron')} revertir.` : `Deshecho: ${ultimo.texto.toLowerCase()}.`);
+    await cargar();
+  }
+  const copiarSel = () => {
+    const xs = acts.filter((a) => sel.includes(a.id));
+    if (!xs.length) return;
+    setClip(xs);
+    setAviso(`${xs.length > 1 ? `Copiadas ${xs.length}` : 'Copiada'}. Tocá el día donde va${xs.length > 1 ? 'n' : ''} y ⌘V (Ctrl+V).`);
+  };
+  const pegarEn = (dia: string) => {
+    if (!clip.length) return;
+    const base = clip.map((a) => a.fecha).sort()[0];
+    const n = diasDeA(base, dia);
+    const xs = clip;
+    void hacer(`Pegada${xs.length > 1 ? `s ${xs.length} actividades` : ''}`, async () => {
+      let fallas = 0; const nuevas: string[] = [];
+      for (const a of xs) {
+        const { data, error } = await supabase.rpc('guardar_actividad', { p_id: null, p_datos: datosDe(a, corrido(a.fecha, n)), p_destinos: a.destinos });
+        if (error) fallas++; else nuevas.push(data as string);
+      }
+      setSel(nuevas);
+      return { fallas, revertir: async () => { let f = 0; for (const id of nuevas) { const r = await supabase.rpc('eliminar_actividad', { p_id: id }); if (r.error) f++; } return f; } };
+    });
+  };
+
   const clicActividad = (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; stopPropagation: () => void }, a: Actividad) => {
     e.stopPropagation();
-    if (puedeCrear && (e.metaKey || e.ctrlKey || e.shiftKey)) setSel(sel.includes(a.id) ? sel.filter((x) => x !== a.id) : [...sel, a.id]);
-    else if (sel.length) setSel(sel.includes(a.id) ? sel.filter((x) => x !== a.id) : [...sel, a.id]);
-    else setDetalle(a);
+    if (!puedeCrear || tactil) { setDetalle(a); return; }
+    setDiaActivo(a.fecha);
+    if (e.metaKey || e.ctrlKey || e.shiftKey) setSel(sel.includes(a.id) ? sel.filter((x) => x !== a.id) : [...sel, a.id]);
+    else setSel([a.id]);
   };
   // Mayús + clic en el número de un día: elige todas sus actividades (y el rango hasta el último día elegido).
   const elegirDias = (s: string) => {
     const desde = diaAncla && diaAncla < s ? diaAncla : s;
     const hasta = diaAncla && diaAncla > s ? diaAncla : s;
     const ids = visibles.filter((a) => a.fecha >= desde && a.fecha <= hasta).map((a) => a.id);
-    setSel([...new Set([...sel, ...ids])]); setDiaAncla(s);
+    setSel([...new Set([...sel, ...ids])]); setDiaAncla(s); setDiaActivo(s);
   };
-  const copiarSel = () => { const xs = acts.filter((a) => sel.includes(a.id)); if (xs.length) { setClip(xs); setSel([]); } };
-  async function pegarEn(dia: string) {
-    if (!clip.length) return;
-    const base = [...clip].map((a) => a.fecha).sort()[0];
-    const corrimiento = Math.round((desdeIso(dia).getTime() - desdeIso(base).getTime()) / 86400000);
-    setTrabajando(`Pegando ${clip.length}…`); setError('');
-    let fallas = 0;
-    for (const a of clip) {
-      const { error } = await supabase.rpc('guardar_actividad', {
-        p_id: null,
-        p_datos: { nombre: a.nombre, tipo: a.tipo, fecha: iso(sumarDias(desdeIso(a.fecha), corrimiento)), todo_el_dia: a.todo_el_dia, hora_inicio: a.hora_inicio, hora_fin: a.hora_fin, lugar: a.lugar, direccion: a.direccion, es_partido: a.es_partido, rival: a.rival, fuera: a.fuera },
-        p_destinos: a.destinos,
-      });
-      if (error) fallas++;
-    }
-    setTrabajando('');
-    if (fallas) setError(`No se pudieron pegar ${fallas} actividad${fallas > 1 ? 'es' : ''}.`);
-    await cargar();
-  }
-  async function borrarSel() {
-    const xs = acts.filter((a) => sel.includes(a.id));
-    setTrabajando(`Borrando ${xs.length}…`); setError('');
-    let fallas = 0;
-    for (const a of xs) { const { error } = await supabase.rpc('eliminar_actividad', { p_id: a.id }); if (error) fallas++; }
-    setTrabajando(''); setConfirmarBorrar(false); setSel([]);
-    if (fallas) setError(`${fallas} actividad${fallas > 1 ? 'es' : ''} no se pudieron borrar (solo podés borrar las que podés editar).`);
-    await cargar();
-  }
+  const clicDia = (s: string) => { setDiaActivo(s); setSel([]); setDiaAncla(null); };
+
+  // Arrastrar y soltar: mueve; con ⌥ (Alt) o Ctrl apretado, copia.
+  const arrastrable = (a: Actividad) => (puedeCrear && !tactil && puedeEditarAct(a) ? {
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      const ids = sel.includes(a.id) ? sel : [a.id];
+      try { e.dataTransfer.setData('text/plain', ids.join(',')); e.dataTransfer.effectAllowed = 'copyMove'; } catch { /* nada */ }
+      setArrastre({ ids, desde: a.fecha }); setSel(ids);
+    },
+    onDragEnd: () => { setArrastre(null); setSoltarEn(null); },
+  } : {});
+  const destinoDeArrastre = (s: string) => (puedeCrear && !tactil ? {
+    onDragOver: (e: React.DragEvent) => { if (!arrastre) return; e.preventDefault(); e.dataTransfer.dropEffect = e.altKey || e.ctrlKey ? 'copy' : 'move'; if (soltarEn !== s) setSoltarEn(s); },
+    onDragLeave: () => { if (soltarEn === s) setSoltarEn(null); },
+    onDrop: (e: React.DragEvent) => {
+      e.preventDefault();
+      if (arrastre) moverOCopiar(arrastre.ids, diasDeA(arrastre.desde, s), e.altKey || e.ctrlKey);
+      setArrastre(null); setSoltarEn(null); setDiaActivo(s);
+    },
+  } : {});
+  // En el celular: mantener apretada una actividad abre las opciones.
+  const pulsacionLarga = (a: Actividad) => (puedeCrear && tactil ? {
+    onTouchStart: () => { pulsacion.current = window.setTimeout(() => { pulsacion.current = null; setMenu(a); }, 500); },
+    onTouchEnd: (e: React.TouchEvent) => { if (pulsacion.current) { window.clearTimeout(pulsacion.current); pulsacion.current = null; } else e.preventDefault(); },
+    onTouchMove: () => { if (pulsacion.current) { window.clearTimeout(pulsacion.current); pulsacion.current = null; } },
+    onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+  } : {});
+
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => {
       const t = (e.target as HTMLElement | null)?.tagName ?? '';
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t) || form || detalle || !puedeCrear) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t) || form || detalle || menu || !puedeCrear) return;
       const k = e.key.toLowerCase(); const mod = e.metaKey || e.ctrlKey;
       if (mod && k === 'c' && sel.length) { e.preventDefault(); copiarSel(); }
-      else if (mod && k === 'v' && clip.length) { e.preventDefault(); void pegarEn(diaHover ?? (vista === 'dia' ? iso(ref) : hoy)); }
-      else if ((k === 'delete' || k === 'backspace') && sel.length) { e.preventDefault(); setConfirmarBorrar(true); }
-      else if (k === 'escape') { setSel([]); setConfirmarBorrar(false); setDiaAncla(null); }
+      else if (mod && k === 'v' && clip.length) { e.preventDefault(); pegarEn(diaActivo ?? (vista === 'dia' ? iso(ref) : hoy)); }
+      else if (mod && k === 'z') { e.preventDefault(); void deshacer(); }
+      else if ((k === 'delete' || k === 'backspace') && sel.length) { e.preventDefault(); borrarSel(); }
+      else if (k === 'enter' && sel.length === 1) { const a = acts.find((x) => x.id === sel[0]); if (a) { e.preventDefault(); setDetalle(a); } }
+      else if (k === 'escape') { setSel([]); setDiaAncla(null); setClip([]); setAviso(''); }
     };
     window.addEventListener('keydown', tecla);
     return () => window.removeEventListener('keydown', tecla);
@@ -170,12 +265,14 @@ export default function Calendario() {
   const pendienteMio = (a: Actividad) => a.confirmaciones.some((c) => c.perfil_id === perfil?.id && c.estado === 'pendiente');
   const hayPendientes = (a: Actividad) => a.tipo === 'prensa' && a.confirmaciones.some((c) => c.estado !== 'acepta');
 
-  const Chip = ({ a }: { a: Actividad }) => {
+  // Funciones (no componentes) para que React no vuelva a crear el botón mientras se arrastra.
+  const chip = (a: Actividad) => {
     const t = TIPOS[a.tipo];
     const relleno = a.todo_el_dia || a.es_partido;
     return (
-      <button type="button" aria-pressed={sel.includes(a.id)} onClick={(e) => clicActividad(e, a)}
-        style={{ width: '100%', minHeight: 24, border: 0, borderRadius: 6, padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 5, font: `${a.es_partido ? 700 : 500} 12px Inter, sans-serif`, textAlign: 'left', background: sel.includes(a.id) ? '#16181D' : relleno ? t.bg : 'transparent', color: sel.includes(a.id) ? '#fff' : relleno ? t.fg : 'var(--ink)' }}>
+      <button key={a.id} type="button" aria-pressed={sel.includes(a.id)} onClick={(e) => clicActividad(e, a)} onDoubleClick={(e) => { e.stopPropagation(); setDetalle(a); }}
+        {...arrastrable(a)} {...pulsacionLarga(a)}
+        style={{ width: '100%', minHeight: 24, cursor: puedeCrear && !tactil && puedeEditarAct(a) ? 'grab' : 'pointer', opacity: arrastre?.ids.includes(a.id) ? 0.5 : 1, border: 0, borderRadius: 6, padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 5, font: `${a.es_partido ? 700 : 500} 12px Inter, sans-serif`, textAlign: 'left', background: sel.includes(a.id) ? '#16181D' : relleno ? t.bg : 'transparent', color: sel.includes(a.id) ? '#fff' : relleno ? t.fg : 'var(--ink)' }}>
         {!a.todo_el_dia && <span style={{ flex: 'none', width: 7, height: 7, borderRadius: 4, background: t.color }} />}
         <span style={{ flex: 'none', fontVariantNumeric: 'tabular-nums' }}>{a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio)}</span>
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{titulo(a)}</span>
@@ -184,10 +281,11 @@ export default function Calendario() {
     );
   };
 
-  const Tarjeta = ({ a }: { a: Actividad }) => {
+  const tarjeta = (a: Actividad) => {
     const t = TIPOS[a.tipo];
     return (
-      <button type="button" className="card" aria-pressed={sel.includes(a.id)} onClick={(e) => clicActividad(e, a)}
+      <button key={a.id} type="button" className="card" aria-pressed={sel.includes(a.id)} onClick={(e) => clicActividad(e, a)} onDoubleClick={(e) => { e.stopPropagation(); setDetalle(a); }}
+        {...pulsacionLarga(a)}
         style={{ width: '100%', border: 0, padding: 14, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 6, background: a.es_partido ? t.bg : '#fff', boxShadow: sel.includes(a.id) ? 'inset 0 0 0 2px #16181D' : undefined }}>
         <span className="row" style={{ justifyContent: 'space-between', width: '100%' }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: t.fg }}>{a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio) + (a.hora_fin ? `–${hora(a.hora_fin)}` : '')} · {t.nombre}</span>
@@ -233,33 +331,12 @@ export default function Calendario() {
       </div>
 
       {error && <p className="notice notice-error" role="alert">{error}</p>}
-      {puedeCrear && !sel.length && !clip.length && (
-        <p className="xs muted solo-escritorio" style={{ margin: '0 0 10px' }}>Para copiar o borrar varias: ⌘ (o Ctrl o Mayús) + clic en cada actividad, o Mayús + clic en el número del día para elegir días enteros. Después ⌘C y ⌘V, o los botones.</p>
+      {puedeCrear && !tactil && (
+        <p className="xs muted solo-escritorio" style={{ margin: '0 0 10px' }}>
+          Clic para elegir (⌘ o Mayús para varias) · doble clic para abrir · arrastrá para mover (con ⌥ Alt apretado, copia) · ⌘C copiar · clic en un día y ⌘V pegar · ⌘Z deshacer · Supr borrar · doble clic en un día vacío para crear.
+        </p>
       )}
-
-      {puedeCrear && (sel.length > 0 || clip.length > 0 || trabajando) && (
-        <div className="card row" style={{ padding: '8px 12px', gap: 8, marginBottom: 12, position: 'sticky', top: 0, zIndex: 3 }}>
-          {trabajando ? <span className="small">{trabajando}</span> : sel.length > 0 ? (confirmarBorrar ? (
-            <>
-              <span className="small" style={{ fontWeight: 600 }}>¿Borrar {sel.length} actividad{sel.length > 1 ? 'es' : ''}?</span>
-              <button type="button" className="btn btn-sm" onClick={() => setConfirmarBorrar(false)}>No</button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={borrarSel}>Sí, borrar</button>
-            </>
-          ) : (
-            <>
-              <strong className="small">{sel.length} elegida{sel.length > 1 ? 's' : ''}</strong>
-              <button type="button" className="btn btn-sm btn-primary" onClick={copiarSel}>Copiar</button>
-              <button type="button" className="btn btn-sm link-danger" onClick={() => setConfirmarBorrar(true)}>Borrar</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setSel([]); setDiaAncla(null); }}>Cancelar</button>
-            </>
-          )) : (
-            <>
-              <span className="small">{clip.length} copiada{clip.length > 1 ? 's' : ''}: tocá «Pegar» en el día donde empiezan (o pasá el mouse por el día y ⌘V). Se mantienen los horarios y la distancia entre días.</span>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setClip([])}>Descartar</button>
-            </>
-          )}
-        </div>
-      )}
+      {puedeCrear && tactil && <p className="xs muted" style={{ margin: '0 0 10px' }}>Mantené apretada una actividad para moverla, copiarla o borrarla.</p>}
 
       {vista === 'mes' && (
         <div className="card table-wrap">
@@ -275,17 +352,15 @@ export default function Calendario() {
                 const otroMes = d.getMonth() !== ref.getMonth();
                 const fuera = lista.some((a) => a.es_partido && a.fuera);
                 return (
-                  <div key={s} onClick={() => { if (sel.length) { setSel([]); return; } if (puedeCrear) setForm({ fecha: s }); }} onMouseEnter={() => setDiaHover(s)}
-                    style={{ minHeight: 118, padding: 6, borderRight: '1px solid var(--line-soft)', borderBottom: '1px solid var(--line-soft)', display: 'flex', flexDirection: 'column', gap: 3, background: otroMes ? '#FAFAF8' : fuera ? '#F2F9EE' : '#fff', cursor: puedeCrear ? 'pointer' : 'default' }}>
+                  <div key={s} onClick={() => (puedeCrear && !tactil ? clicDia(s) : puedeCrear && setForm({ fecha: s }))} onDoubleClick={() => { if (puedeCrear) setForm({ fecha: s }); }}
+                    {...destinoDeArrastre(s)}
+                    style={{ minHeight: 118, padding: 6, borderRight: '1px solid var(--line-soft)', borderBottom: '1px solid var(--line-soft)', display: 'flex', flexDirection: 'column', gap: 3, background: soltarEn === s ? '#FDECEE' : otroMes ? '#FAFAF8' : fuera ? '#F2F9EE' : '#fff', cursor: puedeCrear ? 'pointer' : 'default',
+                      boxShadow: soltarEn === s ? 'inset 0 0 0 2px var(--accent)' : diaActivo === s && puedeCrear && !tactil ? 'inset 0 0 0 1.5px #9A9DA4' : undefined }}>
                     <button type="button" onClick={(e) => { e.stopPropagation(); if (puedeCrear && (e.shiftKey || e.metaKey || e.ctrlKey)) { elegirDias(s); return; } setRef(d); setVista('dia'); }} aria-label={fechaLarga(s)}
                       style={{ alignSelf: 'flex-start', border: 0, padding: '2px 7px', borderRadius: 12, fontSize: 13, fontWeight: 700, background: s === hoy ? 'var(--accent)' : 'transparent', color: s === hoy ? '#fff' : otroMes ? '#B7B3AA' : 'var(--ink)' }}>
                       {d.getDate()}
                     </button>
-                    {lista.slice(0, 3).map((a) => <Chip key={a.id} a={a} />)}
-                    {clip.length > 0 && !trabajando && (
-                      <button type="button" className="xs" onClick={(e) => { e.stopPropagation(); void pegarEn(s); }}
-                        style={{ alignSelf: 'flex-start', border: '1px dashed #9A9DA4', background: 'transparent', borderRadius: 6, padding: '1px 6px', fontWeight: 600, color: '#3F444D' }}>Pegar</button>
-                    )}
+                    {lista.slice(0, 3).map((a) => chip(a))}
                     {lista.length > 3 && (
                       <button type="button" onClick={(e) => { e.stopPropagation(); setRef(d); setVista('dia'); }} style={{ border: 0, background: 'transparent', textAlign: 'left', padding: '0 6px', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>+{lista.length - 3} más</button>
                     )}
@@ -304,19 +379,18 @@ export default function Calendario() {
             const s = iso(d);
             const lista = deDia(s);
             return (
-              <section key={s} aria-label={fechaLarga(s)} className="card" onMouseEnter={() => setDiaHover(s)} style={{ display: 'flex', gap: 12, padding: '12px 14px', boxShadow: s === hoy ? 'inset 0 0 0 2px var(--accent)' : undefined }}>
+              <section key={s} aria-label={fechaLarga(s)} className="card" onClick={() => { if (puedeCrear && !tactil) clicDia(s); }} onDoubleClick={() => { if (puedeCrear) setForm({ fecha: s }); }}
+                {...destinoDeArrastre(s)}
+                style={{ display: 'flex', gap: 12, padding: '12px 14px', background: soltarEn === s ? '#FDECEE' : undefined,
+                  boxShadow: soltarEn === s || s === hoy ? 'inset 0 0 0 2px var(--accent)' : diaActivo === s && puedeCrear && !tactil ? 'inset 0 0 0 1.5px #9A9DA4' : undefined }}>
                 <div style={{ width: 44, flex: 'none', textAlign: 'center', cursor: puedeCrear ? 'pointer' : undefined }} title={puedeCrear ? 'Mayús + clic: elegir todo el día' : undefined}
-                  onClick={(e) => { if (puedeCrear && (e.shiftKey || e.metaKey || e.ctrlKey)) elegirDias(s); }}>
+                  onClick={(e) => { if (puedeCrear && (e.shiftKey || e.metaKey || e.ctrlKey)) { e.stopPropagation(); elegirDias(s); } }}>
                   <div className="xs muted" style={{ fontWeight: 600, textTransform: 'uppercase' }}>{DIAS_CORTOS[diaSemana(d)]}</div>
                   <div className="display" style={{ fontSize: 26, color: s === hoy ? 'var(--accent)' : undefined }}>{d.getDate()}</div>
                 </div>
                 <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
                   {lista.length === 0 && <span className="small muted" style={{ paddingTop: 6 }}>Sin actividades</span>}
-                  {lista.map((a) => <Chip key={a.id} a={a} />)}
-                  {clip.length > 0 && !trabajando && (
-                    <button type="button" className="xs" onClick={() => void pegarEn(s)}
-                      style={{ alignSelf: 'flex-start', border: '1px dashed #9A9DA4', background: 'transparent', borderRadius: 6, padding: '1px 6px', fontWeight: 600, color: '#3F444D' }}>Pegar acá</button>
-                  )}
+                  {lista.map((a) => chip(a))}
                 </div>
               </section>
             );
@@ -327,11 +401,33 @@ export default function Calendario() {
       {vista === 'dia' && (
         <div className="stack" style={{ gap: 10, maxWidth: 640 }}>
           {deDia(iso(ref)).length === 0 && <div className="card muted" style={{ padding: 16 }}>No hay actividades este día.</div>}
-          {deDia(iso(ref)).map((a) => <Tarjeta key={a.id} a={a} />)}
-          {clip.length > 0 && !trabajando && <button type="button" className="btn" onClick={() => void pegarEn(iso(ref))}>Pegar acá ({clip.length})</button>}
+          {deDia(iso(ref)).map((a) => tarjeta(a))}
         </div>
       )}
 
+      {puedeCrear && (trabajando || aviso || sel.length > 0 || pasos.length > 0) && (
+        <div className="cal-toast" role="status">
+          {trabajando ? <span>{trabajando}</span> : (
+            <>
+              {sel.length > 0 && !aviso && <span><strong>{plural(sel.length, 'elegida', 'elegidas')}</strong></span>}
+              {aviso && <span>{aviso}</span>}
+              {sel.length > 0 && <button type="button" onClick={copiarSel}>Copiar</button>}
+              {sel.length > 0 && <button type="button" onClick={() => borrarSel()}>Borrar</button>}
+              {clip.length > 0 && diaActivo && !sel.length && <button type="button" onClick={() => pegarEn(diaActivo)}>Pegar en el {desdeIso(diaActivo).getDate()}</button>}
+              {pasos.length > 0 && <button type="button" onClick={() => void deshacer()}>Deshacer</button>}
+              <button type="button" aria-label="Cerrar" onClick={() => { setSel([]); setAviso(''); setClip([]); setPasos([]); }}>×</button>
+            </>
+          )}
+        </div>
+      )}
+      {menu && (
+        <MenuActividad a={menu} onCerrar={() => setMenu(null)}
+          onVer={() => { setDetalle(menu); setMenu(null); }}
+          onMover={(f) => { moverOCopiar([menu.id], diasDeA(menu.fecha, f), false); setMenu(null); }}
+          onCopiar={(f) => { moverOCopiar([menu.id], diasDeA(menu.fecha, f), true); setMenu(null); }}
+          onBorrar={() => { borrarSel([menu.id]); setMenu(null); }}
+          puedeEditar={puedeEditarAct(menu)} />
+      )}
       {detalle && (
         <Detalle a={detalle} yo={perfil!.id} nombreDe={nombreDe} grupos={grupos}
           puedeEditar={nivel === 'editar' || (nivel === 'propio' && detalle.creado_por === perfil!.id)}
@@ -346,6 +442,28 @@ export default function Calendario() {
       )}
       {suscribir && <Suscripcion onCerrar={() => setSuscribir(false)} />}
     </div>
+  );
+}
+
+// Celular: opciones de una actividad (mantener apretada).
+function MenuActividad({ a, puedeEditar, onCerrar, onVer, onMover, onCopiar, onBorrar }: {
+  a: Actividad; puedeEditar: boolean; onCerrar: () => void; onVer: () => void; onMover: (f: string) => void; onCopiar: (f: string) => void; onBorrar: () => void;
+}) {
+  const [fecha, setFecha] = useState(a.fecha);
+  return (
+    <Dialogo titulo={titulo(a)} onCerrar={onCerrar} ancho={420}>
+      <p className="small muted" style={{ margin: 0 }}>{fechaLarga(a.fecha)} · {a.todo_el_dia ? 'Todo el día' : hora(a.hora_inicio)}</p>
+      <button type="button" className="btn" onClick={onVer}>Ver detalle</button>
+      <label className="field"><span>Otro día</span>
+        <input className="input" type="date" value={fecha} onChange={(e) => e.target.value && setFecha(e.target.value)} />
+      </label>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <button type="button" className="btn btn-dark" disabled={!puedeEditar || fecha === a.fecha} onClick={() => onMover(fecha)}>Mover</button>
+        <button type="button" className="btn" onClick={() => onCopiar(fecha)}>Copiar</button>
+      </div>
+      {puedeEditar && <button type="button" className="btn btn-ghost link-danger" onClick={onBorrar}>Borrar</button>}
+      <p className="xs muted" style={{ margin: 0 }}>Si te equivocás, tocá «Deshacer» abajo.</p>
+    </Dialogo>
   );
 }
 

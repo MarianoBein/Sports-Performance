@@ -4,7 +4,7 @@ import { supabase } from './supabase';
 import { permisosEfectivos, type Permisos } from './permisos';
 
 export type Rol = { id: string; clave: string; nombre: string; es_jugador: boolean; permisos: Permisos };
-export type Club = { id: string; nombre: string; sede_local: string | null; temporada: string | null; logo_club_url?: string | null; logo_liga_url?: string | null; wellness_modo?: string; rpe_modo?: string; rpe_retraso_min?: number; hora_aviso_wellness?: string };
+export type Club = { id: string; nombre: string; sede_local: string | null; temporada: string | null; logo_club_url?: string | null; logo_liga_url?: string | null; wellness_modo?: string; rpe_modo?: string; rpe_retraso_min?: number; hora_aviso_wellness?: string; fuentes?: { gps?: boolean; fuerza?: boolean } };
 export type Perfil = {
   id: string; club_id: string; nombre: string; email: string; rol_id: string;
   es_admin: boolean; permisos_ajustados: Partial<Permisos> | null; eliminado_en: string | null; debe_cambiar_clave?: boolean;

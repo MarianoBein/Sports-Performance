@@ -4,9 +4,10 @@ import { useSesion } from '../lib/sesion';
 import Dialogo from '../components/Dialogo';
 import { CATEGORIAS, IMPLEMENTOS, miniatura, normalizar, tonoCategoria, type Ejercicio } from '../lib/workout';
 import Semana from './workout/Semana';
+import Programas from './workout/Programas';
 import Entreno from './workout/Entreno';
 
-type Tab = 'semana' | 'jugadores' | 'biblioteca';
+type Tab = 'semana' | 'jugadores' | 'biblioteca' | 'programas';
 const POR_PAGINA = 60;
 
 function Etiquetas({ e }: { e: Ejercicio }) {
@@ -265,10 +266,12 @@ export default function WorkoutBuilder() {
         <>
           <div className="tabs" role="tablist" aria-label="Secciones">
             {editable && <button type="button" role="tab" aria-selected={tab === 'semana'} onClick={() => setTab('semana')}>Planes</button>}
+            {editable && <button type="button" role="tab" aria-selected={tab === 'programas'} onClick={() => setTab('programas')}>Programas</button>}
             <button type="button" role="tab" aria-selected={tab === 'jugadores'} onClick={() => setTab('jugadores')}>Jugadores</button>
             <button type="button" role="tab" aria-selected={tab === 'biblioteca'} onClick={() => setTab('biblioteca')}>Biblioteca</button>
           </div>
           {tab === 'semana' && editable && <Semana biblioteca={biblioteca} onBibliotecaCambio={(e) => setBiblioteca((b) => [...b, e].sort((x, y) => x.nombre.localeCompare(y.nombre)))} />}
+          {tab === 'programas' && editable && <Programas biblioteca={biblioteca} onBibliotecaCambio={(e) => setBiblioteca((b) => [...b, e].sort((x, y) => x.nombre.localeCompare(y.nombre)))} />}
           {tab === 'jugadores' && <EntrenoDeJugador />}
           {tab === 'biblioteca' && <Biblioteca editable={editable} />}
         </>
