@@ -40,11 +40,11 @@ function Dialogo({ titulo, onCerrar, children, pie }: { titulo: string; onCerrar
 
 function CodigoListo({ codigo }: { codigo: string }) {
   const [copiado, setCopiado] = useState(false);
-  const texto = `Tu código para crear la cuenta de administrador es ${codigo}. Entra en ${window.location.origin}/alta`;
+  const texto = `Tu código para crear la cuenta de administrador es ${codigo}. Entrá desde este link (el código ya va cargado): ${window.location.origin}/alta?codigo=${encodeURIComponent(codigo)}`;
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'center', padding: 18, borderRadius: 12, background: 'var(--bg)' }}>
-        <span className="display" style={{ fontSize: 38, letterSpacing: '.1em' }}>{codigo}</span>
+        <span className="display" style={{ fontSize: 'clamp(20px, 6vw, 34px)', letterSpacing: '.06em', overflowWrap: 'anywhere', textAlign: 'center' }}>{codigo}</span>
       </div>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <span className="small muted">Un solo uso · caduca en 14 días · da acceso de administrador</span>

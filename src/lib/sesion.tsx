@@ -42,13 +42,14 @@ export function SesionProvider({ children }: { children: ReactNode }) {
     // Con varias organizaciones, «yo» es el perfil de la organización elegida.
     // (Si la base todavía no tiene el 020, el perfil es el de la cuenta, como antes.)
     const miPerfil = !yo.error && typeof yo.data === 'string' ? yo.data : s.user.id;
+    // Sin «*»: el email de las personas solo lo ven los administradores (024). El propio sale de la cuenta.
     const { data } = await supabase
       .from('perfiles')
-      .select('*, rol:roles(*), club:clubs(*)')
+      .select('id,club_id,nombre,rol_id,es_admin,permisos_ajustados,eliminado_en,debe_cambiar_clave,rol:roles(*),club:clubs(*)')
       .eq('id', miPerfil)
       .is('eliminado_en', null)
       .maybeSingle();
-    setPerfil((data as Perfil) ?? null);
+    setPerfil(data ? ({ ...(data as unknown as Perfil), email: s.user.email ?? '' }) : null);
   }, []);
 
   useEffect(() => {

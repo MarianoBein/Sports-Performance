@@ -68,7 +68,7 @@ export default function Usuarios() {
 
   const cargar = useCallback(async () => {
     const [p, r, g, m, reg] = await Promise.all([
-      supabase.from('perfiles').select('id,nombre,email,rol_id,es_admin,permisos_ajustados,eliminado_en,creado_en').is('eliminado_en', null).order('nombre'),
+      supabase.from('perfiles').select('id,nombre,rol_id,es_admin,permisos_ajustados,eliminado_en,creado_en').is('eliminado_en', null).order('nombre'),
       supabase.from('roles').select('*').order('nombre'),
       supabase.from('grupos').select('id,nombre').order('nombre'),
       supabase.from('grupo_miembros').select('*'),
@@ -76,7 +76,15 @@ export default function Usuarios() {
     ]);
     const err = p.error || r.error || g.error || m.error || reg.error;
     if (err) setError(mensajeError(err));
-    setPersonas((p.data as Persona[]) ?? []);
+    // Los emails los da una función aparte: solo la ve quien entra a Usuarios (024).
+    let emails = new Map<string, string>();
+    const em = await supabase.rpc('emails_del_club');
+    if (!em.error) emails = new Map(((em.data ?? []) as { perfil_id: string; email: string }[]).map((x) => [x.perfil_id, x.email]));
+    else {
+      const viejo = await supabase.from('perfiles').select('id,email');
+      if (!viejo.error) emails = new Map(((viejo.data ?? []) as { id: string; email: string }[]).map((x) => [x.id, x.email]));
+    }
+    setPersonas(((p.data ?? []) as Omit<Persona, 'email'>[]).map((x) => ({ ...x, email: emails.get(x.id) ?? '' })) as Persona[]);
     setRoles((r.data as Rol[]) ?? []);
     setGrupos((g.data as Grupo[]) ?? []);
     setMiembros((m.data as Miembro[]) ?? []);
@@ -371,7 +379,7 @@ function CodigoAlta({ roles, grupos, onCerrar }: { roles: Rol[]; grupos: Grupo[]
   }
   async function copiar() {
     if (!res) return;
-    const texto = `Tu código para entrar a la app del club es ${res.codigo}. Ábrela en ${window.location.origin}/alta`;
+    const texto = `Tu código para entrar a la app del club es ${res.codigo}. Entrá desde este link (el código ya va cargado): ${window.location.origin}/alta?codigo=${encodeURIComponent(res.codigo)}`;
     try { await navigator.clipboard.writeText(texto); setCopiado(true); } catch { setCopiado(false); }
   }
 
@@ -397,7 +405,7 @@ function CodigoAlta({ roles, grupos, onCerrar }: { roles: Rol[]; grupos: Grupo[]
       {res ? (
         <>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 18, borderRadius: 12, background: 'var(--bg)' }}>
-            <span className="display" style={{ fontSize: 44, letterSpacing: '.12em' }}>{res.codigo}</span>
+            <span className="display" style={{ fontSize: 'clamp(24px, 7vw, 40px)', letterSpacing: '.08em', overflowWrap: 'anywhere', textAlign: 'center' }}>{res.codigo}</span>
           </div>
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <span className="small muted">{res.usos_max ? 'Un solo uso' : 'Varios usos'} · caduca el {fecha(res.caduca_en)}</span>

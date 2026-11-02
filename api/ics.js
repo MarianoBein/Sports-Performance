@@ -3,7 +3,7 @@
 const URL_SB = process.env.VITE_SUPABASE_URL || 'https://dpminerxndpjqillozqo.supabase.co';
 const KEY = process.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_mJQtrQeXlzI3dG7hvOAXFQ_-wRU_8NB';
 
-const esc = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+const esc = (s) => String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n|\r|\n/g, '\\n');
 const fecha = (d) => d.replace(/-/g, '');
 const horaIcs = (t) => t.slice(0, 5).replace(':', '') + '00';
 const siguienteDia = (d) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };

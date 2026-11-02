@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useSesion } from '../lib/sesion';
 import { supabase, mensajeError } from '../lib/supabase';
 
-const TIPOS_OK = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+const TIPOS_OK = ['image/png', 'image/jpeg', 'image/webp'];   // sin SVG: puede llevar código
 
 function Escudo({ titulo, url, onElegir, onQuitar, subiendo }: {
   titulo: string; url: string | null; subiendo: boolean; onElegir: (f: File) => void; onQuitar: () => void;
@@ -58,7 +58,7 @@ export default function Ajustes() {
 
   async function subir(cual: 'club' | 'liga', f: File) {
     setAviso(null);
-    if (!TIPOS_OK.includes(f.type)) { setAviso({ ok: false, texto: 'El archivo tiene que ser PNG, JPG, WebP o SVG.' }); return; }
+    if (!TIPOS_OK.includes(f.type)) { setAviso({ ok: false, texto: 'El archivo tiene que ser PNG, JPG o WebP.' }); return; }
     if (f.size > 1024 * 1024) { setAviso({ ok: false, texto: 'El archivo pesa más de 1 MB. Prueba con una versión más liviana.' }); return; }
     setSubiendo(cual);
     const ext = f.name.split('.').pop()?.toLowerCase() || 'png';

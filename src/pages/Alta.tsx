@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { useSesion } from '../lib/sesion';
 
@@ -16,7 +16,8 @@ export default function Alta() {
   const { sesion, perfil, recargar, salir } = useSesion();
   const nav = useNavigate();
   const [paso, setPaso] = useState<Paso>('codigo');
-  const [codigo, setCodigo] = useState('');
+  const [params] = useSearchParams();
+  const [codigo, setCodigo] = useState(() => (params.get('codigo') ?? '').toUpperCase().replace(/[^A-Z0-9 -]/g, '').slice(0, 40));
   const [info, setInfo] = useState<Info | null>(null);
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
