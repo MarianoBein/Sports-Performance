@@ -3,6 +3,8 @@ import { supabase, mensajeError } from '../../lib/supabase';
 import { DIAS_CORTOS, MESES, desdeIso, hoyIso } from '../../lib/calendario';
 import { BREAKS_SUGERIDOS, esquema, nuevoId, textoPregunta, type Ejercicio, type Item } from '../../lib/workout';
 import { asignarPrograma, claveDia, fechaDe, lunesIso, sesionesDe, type Programa } from '../../lib/programas';
+import { OBJETIVOS, alternativas, armarPlan, type Objetivo, type Opciones } from '../../lib/armarPlan';
+import { useSesion } from '../../lib/sesion';
 import Dialogo from '../../components/Dialogo';
 import EditorItem from './EditorItem';
 import { EditorBreak, EditorNota, EditorPregunta } from './Semana';
@@ -18,6 +20,8 @@ export default function Programas({ biblioteca, onBibliotecaCambio }: { bibliote
   const [asignando, setAsignando] = useState<Programa | null>(null);
   const [aviso, setAviso] = useState('');
   const [error, setError] = useState('');
+  const [armando, setArmando] = useState(false);
+  const { esDueno } = useSesion();   // «Armar plan» en prueba: solo lo ve el dueño de la plataforma
 
   const cargar = useCallback(async () => {
     const { data, error: e } = await supabase.from('programas').select('id,nombre,descripcion,semanas,dias,actualizado_en').order('nombre');
@@ -40,6 +44,7 @@ export default function Programas({ biblioteca, onBibliotecaCambio }: { bibliote
           Programas guardados para usar cuando haga falta (por ejemplo, la vuelta de un esguince de tobillo).
           Se arman por semanas y días, sin fechas. Al asignarlo, se copia a los días del jugador o grupo, antes o después de su entreno, y ahí lo podés ajustar sin tocar el programa.
         </p>
+        {esDueno && <button type="button" className="btn btn-dark" onClick={() => setArmando(true)} title="En prueba: solo lo ves vos">✨ Armar plan</button>}
         <button type="button" className="btn btn-primary" onClick={() => setAbierto(vacio())}>+ Nuevo programa</button>
       </div>
       {aviso && <p className="notice notice-ok" role="status" style={{ margin: 0 }}>{aviso}</p>}
@@ -70,7 +75,66 @@ export default function Programas({ biblioteca, onBibliotecaCambio }: { bibliote
         </div>
       )}
       {asignando && <DialogoAsignar programa={asignando} onCerrar={(msg) => { setAsignando(null); if (msg) setAviso(msg); }} />}
+      {armando && <DialogoArmar biblioteca={biblioteca} onCerrar={() => setArmando(false)} onListo={(p) => { setArmando(false); setAbierto(p); }} />}
     </div>
+  );
+}
+
+// «Armar plan»: te arma la semana 1 y la progresión con tus reglas; después la revisás y la asignás.
+function DialogoArmar({ biblioteca, onCerrar, onListo }: { biblioteca: Ejercicio[]; onCerrar: () => void; onListo: (p: Programa) => void }) {
+  const [op, setOp] = useState<Opciones>({ nombre: '', objetivo: 'futbol', dias: 2, semanas: 6, plio: true, descansos: true });
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState('');
+  async function armar() {
+    if (!biblioteca.length) { setError('La Biblioteca está vacía: cargá ejercicios primero.'); return; }
+    setOcupado(true); setError('');
+    // Lo que más usás en este club va primero.
+    const { data } = await supabase.from('sesion_items').select('ejercicio_id').not('ejercicio_id', 'is', null).is('eliminado_en', null).limit(5000);
+    const uso: Record<string, number> = {};
+    for (const r of (data ?? []) as { ejercicio_id: string }[]) uso[r.ejercicio_id] = (uso[r.ejercicio_id] ?? 0) + 1;
+    const { dias, resumen } = armarPlan(biblioteca, uso, op);
+    const obj = OBJETIVOS.find(([k]) => k === op.objetivo)?.[1] ?? '';
+    onListo({ id: '', nombre: op.nombre.trim() || `${obj} · ${op.dias} días · ${op.semanas} semanas`, descripcion: resumen.join(' · '), semanas: op.semanas, dias });
+  }
+  return (
+    <Dialogo titulo="Armar plan" onCerrar={onCerrar} ancho={520}
+      pie={<>
+        <button type="button" className="btn" onClick={onCerrar}>Cancelar</button>
+        <button type="button" className="btn btn-primary" disabled={ocupado} onClick={armar}>{ocupado ? 'Armando…' : 'Armar'}</button>
+      </>}>
+      <div className="stack" style={{ gap: 14 }}>
+        <p className="small muted" style={{ margin: 0 }}>Arma la semana 1 y la progresión con tus reglas: pares cruzados, auxiliar con los patrones opuestos a una pierna o un brazo, activación según el día y la semana de estructura a potencia. Después lo revisás, cambiás lo que quieras (↻ en cada ejercicio) y lo asignás.</p>
+        <label className="field"><span>Nombre (opcional)</span>
+          <input className="input" value={op.nombre} placeholder="Ej.: Ferreyra · temporada" onChange={(e) => setOp({ ...op, nombre: e.target.value })} />
+        </label>
+        <div className="field"><span>Objetivo</span>
+          <div className="row" role="group" aria-label="Objetivo" style={{ gap: 6 }}>
+            {OBJETIVOS.map(([k, t]) => <button key={k} type="button" className="chip" aria-pressed={op.objetivo === k} onClick={() => setOp({ ...op, objetivo: k as Objetivo })}>{t}</button>)}
+          </div>
+        </div>
+        <div className="row" style={{ gap: 12 }}>
+          <label className="field" style={{ flex: 1 }}><span>Días por semana</span>
+            <select className="select" value={op.dias} onChange={(e) => setOp({ ...op, dias: Number(e.target.value) })}>
+              {[2, 3, 4].map((n) => <option key={n} value={n}>{n} días</option>)}
+            </select>
+          </label>
+          <label className="field" style={{ flex: 1 }}><span>Duración</span>
+            <select className="select" value={op.semanas} onChange={(e) => setOp({ ...op, semanas: Number(e.target.value) })}>
+              {[4, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n} semanas</option>)}
+            </select>
+          </label>
+        </div>
+        <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={op.plio} onChange={(e) => setOp({ ...op, plio: e.target.checked })} style={{ width: 18, height: 18, accentColor: '#16181D' }} />
+          <span className="small">Incluir plio-iso (intensivo antes de la fuerza, extensivo / iso hold al final)</span>
+        </label>
+        <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+          <input type="checkbox" checked={op.descansos} onChange={(e) => setOp({ ...op, descansos: e.target.checked })} style={{ width: 18, height: 18, accentColor: '#16181D' }} />
+          <span className="small">Poner descansos</span>
+        </label>
+        {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+      </div>
+    </Dialogo>
   );
 }
 
@@ -88,7 +152,7 @@ function EditorPrograma({ inicial, biblioteca, onBibliotecaCambio, onVolver, onA
   const [estado, setEstado] = useState<'' | 'guardando' | 'ok'>('');
   const [error, setError] = useState('');
   const [borrar, setBorrar] = useState(false);
-  const sinGuardar = JSON.stringify(p) !== JSON.stringify(guardado);
+  const sinGuardar = !p.id || JSON.stringify(p) !== JSON.stringify(guardado);
 
   const cambiar = (nuevo: Programa) => { setPasado((h) => [...h, p].slice(-40)); setP(nuevo); setEstado(''); };
   const dia = (k: string) => p.dias[k] ?? [];
@@ -119,6 +183,14 @@ function EditorPrograma({ inicial, biblioteca, onBibliotecaCambio, onVolver, onA
     const its = dia(ed.clave);
     cambiar(conDia(ed.clave, ed.item ? its.map((x) => (x.id === ed.item!.id ? { ...it, id: x.id } : x)) : [...its, it]));
     if (ed.item || ed.tipo !== 'ejercicio') setEdicion(null);
+  }
+  // ↻ cambia el ejercicio por el siguiente que sirve para el mismo hueco (misma categoría y lateralidad).
+  function cambiarPorOtro(k: string, it: Item) {
+    const alts = alternativas(biblioteca, it);
+    if (!alts.length) return;
+    const usados = new Set(dia(k).map((x) => x.ejercicio_id));
+    const sig = alts.find((x) => !usados.has(x.id)) ?? alts[0];
+    cambiar(conDia(k, dia(k).map((x) => (x.id === it.id ? { ...x, ejercicio_id: sig.id, nombre: sig.nombre, cada_lado: sig.lateralidad === 'Unilateral' ? true : x.cada_lado } : x))));
   }
   function quitar(k: string, id: string) { cambiar(conDia(k, dia(k).filter((x) => x.id !== id))); setSel(null); }
   function mover(desde: { clave: string; id: string }, hacia: string, copiar: boolean, antesDe?: string) {
@@ -190,9 +262,17 @@ function EditorPrograma({ inicial, biblioteca, onBibliotecaCambio, onVolver, onA
       </button>
     );
     return (
-      <button key={it.id} type="button" {...base} className="prog-item" style={{ background: on ? '#FDECEE' : 'var(--card)', boxShadow: on ? 'inset 3px 0 0 var(--accent)' : undefined }}>
-        <span style={{ fontSize: 12, fontWeight: 600 }}>{it.nombre}</span><span className="xs muted">{esquema(it)}</span>
-      </button>
+      <div key={it.id} style={{ position: 'relative' }}>
+        <button type="button" {...base} className="prog-item" style={{ background: on ? '#FDECEE' : 'var(--card)', boxShadow: on ? 'inset 3px 0 0 var(--accent)' : undefined, paddingRight: it.config?.hueco ? 26 : undefined }}>
+          {it.config?.hueco && <span className="xs" style={{ color: '#1E3A8A', fontWeight: 600 }}>{it.config.hueco}</span>}
+          <span style={{ fontSize: 12, fontWeight: 600 }}>{it.nombre}</span><span className="xs muted">{esquema(it)}</span>
+        </button>
+        {it.config?.hueco && it.ejercicio_id && (
+          <button type="button" title="Cambiar por otro del mismo hueco" aria-label={`Cambiar ${it.nombre} por otro del mismo hueco`}
+            onClick={(e) => { e.stopPropagation(); cambiarPorOtro(k, it); }}
+            style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, border: 0, borderRadius: 6, background: '#EEF3FF', color: '#1E3A8A', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}>↻</button>
+        )}
+      </div>
     );
   };
 
