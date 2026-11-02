@@ -29,7 +29,7 @@ function Escudo({ titulo, url, onElegir, onQuitar, subiendo }: {
 }
 
 export default function Ajustes() {
-  const { perfil, recargar } = useSesion();
+  const { perfil, recargar, esDueno } = useSesion();
   const [sede, setSede] = useState(perfil?.club.sede_local ?? '');
   const [temporada, setTemporada] = useState(perfil?.club.temporada ?? '');
   const [logoClub, setLogoClub] = useState<string | null>(perfil?.club.logo_club_url ?? null);
@@ -157,6 +157,23 @@ export default function Ajustes() {
           if (error) setAviso({ ok: false, texto: mensajeError(error) }); else { await recargar(); setAviso({ ok: true, texto: 'Guardado.' }); }
         }}>Guardar</button>
       </section>
+
+      {esDueno && (
+        <section className="card stack" style={{ padding: 18, gap: 12 }}>
+          <h2 className="display" style={{ margin: 0, fontSize: 22 }}>En prueba (solo vos lo ves)</h2>
+          <label className="row" style={{ gap: 12, cursor: 'pointer', alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+            <input type="checkbox" checked={!!perfil?.club.rpe_ejercicio} style={{ width: 20, height: 20, marginTop: 2, flex: 'none', accentColor: '#16181D' }}
+              onChange={async (e) => {
+                const { error } = await supabase.rpc('activar_rpe_ejercicio', { p_activo: e.target.checked });
+                if (error) setAviso({ ok: false, texto: mensajeError(error) }); else { await recargar(); setAviso({ ok: true, texto: 'Guardado.' }); }
+              }} />
+            <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <strong style={{ fontSize: 14 }}>Preguntar el RPE de cada ejercicio</strong>
+              <span className="xs muted">Al completar un ejercicio, el jugador marca qué tan duro le pareció (1–10). Con eso, «Proponer semana siguiente» sugiere subir o mantener la carga.</span>
+            </span>
+          </label>
+        </section>
+      )}
 
       {aviso && <p className={`notice ${aviso.ok ? 'notice-ok' : 'notice-error'}`} role="status" style={{ margin: 0 }}>{aviso.texto}</p>}
     </div>

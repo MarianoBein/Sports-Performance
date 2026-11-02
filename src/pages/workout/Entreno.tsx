@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase, mensajeError } from '../../lib/supabase';
+import { useSesion } from '../../lib/sesion';
 import { DIAS, MESES, desdeIso, diaSemana, hoyIso, iso, sumarDias } from '../../lib/calendario';
 import { esquema, idYoutube, tiempoTexto, unidadTexto, type Config, type Item, type Serie } from '../../lib/workout';
 import type { EstadoHoy } from '../../lib/wellness';
@@ -8,7 +9,7 @@ import type { EstadoHoy } from '../../lib/wellness';
 type ItemEntreno = {
   id: string; tipo: 'ejercicio' | 'break' | 'nota' | 'pregunta'; nombre: string; config: Config | null; ejercicio_id: string | null; series: number | null; reps: string | null;
   cada_lado: boolean; detalle: Serie[]; descanso_seg: number | null; nota: string | null;
-  video_url: string | null; consignas: string | null; hecho: Serie[] | null; completado_en: string | null;
+  video_url: string | null; consignas: string | null; hecho: Serie[] | null; completado_en: string | null; rpe?: number | null;
 };
 type Fila = { kg: string; reps: string };
 
@@ -71,8 +72,8 @@ export default function Entreno({ perfilId, soloLectura = false }: { perfilId?: 
       <Detalle key={ejercicios[abierto].id} e={ejercicios[abierto]} n={abierto} total={ejercicios.length} bloque={bloqueDe(ejercicios[abierto].id)} soloLectura={soloLectura}
         onVolver={() => { setAbierto(null); cargar(); }}
         onIr={(i) => setAbierto(i)}
-        onGuardado={(hecho, completado) => {
-          setItems((its) => its && its.map((x) => (x.id === ejercicios[abierto].id ? { ...x, hecho, completado_en: completado ? (x.completado_en ?? new Date().toISOString()) : null } : x)));
+        onGuardado={(hecho, completado, rpe) => {
+          setItems((its) => its && its.map((x) => (x.id === ejercicios[abierto].id ? { ...x, hecho, rpe: rpe ?? x.rpe, completado_en: completado ? (x.completado_en ?? new Date().toISOString()) : null } : x)));
           if (completado) setAbierto(abierto + 1 < ejercicios.length ? abierto + 1 : null);
         }} />
     );
@@ -128,8 +129,11 @@ export default function Entreno({ perfilId, soloLectura = false }: { perfilId?: 
 
 function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado }: {
   e: ItemEntreno; n: number; total: number; bloque: string; soloLectura: boolean;
-  onVolver: () => void; onIr: (i: number) => void; onGuardado: (hecho: Serie[], completado: boolean) => void;
+  onVolver: () => void; onIr: (i: number) => void; onGuardado: (hecho: Serie[], completado: boolean, rpe: number | null) => void;
 }) {
+  const { perfil } = useSesion();
+  const pideRpe = !!perfil?.club.rpe_ejercicio;
+  const [rpe, setRpe] = useState<number | null>(e.rpe ?? null);
   const presc = prescritas(e);
   const [filas, setFilas] = useState<Fila[]>(() => presc.map((p, i) => {
     const h = e.hecho?.[i];
@@ -143,10 +147,12 @@ function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado 
     for (const f of filas) if (f.kg.trim() && leerKg(f.kg) == null) { setError('Los kilos tienen que ser un número (por ejemplo, 22,5).'); return; }
     const hecho = filas.map((f) => ({ reps: f.reps.trim(), kg: leerKg(f.kg) }));
     setGuardando(true); setError('');
-    const { error } = await supabase.rpc('guardar_registro', { p_item: e.id, p_hecho: hecho, p_completado: completado });
+    const { error } = await supabase.rpc('guardar_registro', pideRpe && rpe != null
+      ? { p_item: e.id, p_hecho: hecho, p_completado: completado, p_rpe: rpe }
+      : { p_item: e.id, p_hecho: hecho, p_completado: completado });
     setGuardando(false);
     if (error) { setError(mensajeError(error)); return; }
-    onGuardado(hecho, completado);
+    onGuardado(hecho, completado, pideRpe ? rpe : null);
   }
 
   const cambiado = (i: number, campo: 'kg' | 'reps') => campo === 'kg'
@@ -216,6 +222,22 @@ function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado 
       </div>
       {filas.some((_, i) => cambiado(i, 'kg') || cambiado(i, 'reps')) && (
         <p className="xs" style={{ margin: 0, color: naranja }}>En naranja, lo que cambia respecto de lo que puso el PF.</p>
+      )}
+
+      {(pideRpe || (soloLectura && e.rpe != null)) && (
+        <div className="stack" style={{ gap: 6 }}>
+          <strong id={`rpe-${e.id}`} style={{ fontSize: 15 }}>{soloLectura ? 'Qué tan duro le pareció' : '¿Qué tan duro te pareció?'}</strong>
+          {soloLectura ? <span style={{ fontWeight: 700, fontSize: 18 }}>{e.rpe != null ? `${e.rpe} de 10` : 'No lo marcó.'}</span> : (
+            <>
+              <div role="radiogroup" aria-labelledby={`rpe-${e.id}`} className="rpe-ej">
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
+                  <button key={v} type="button" role="radio" aria-checked={rpe === v} className={rpe === v ? 'activo' : ''} onClick={() => setRpe(rpe === v ? null : v)}>{v}</button>
+                ))}
+              </div>
+              <div className="row xs muted" style={{ justifyContent: 'space-between' }}><span>1 · muy fácil</span><span>10 · no podía más</span></div>
+            </>
+          )}
+        </div>
       )}
 
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}

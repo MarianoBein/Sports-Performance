@@ -160,3 +160,14 @@ button.org-item:hover { background: #F1EFEA; }
 
 /* Programas plantilla */
 .prog-item { width: 100%; border: 0; border-radius: 8px; padding: 6px 8px; text-align: left; display: flex; flex-direction: column; gap: 1px; cursor: grab; overflow-wrap: anywhere; }
+
+/* RPE por ejercicio (1–10) */
+.rpe-ej { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.rpe-ej button { height: 44px; border: 1px solid var(--line, #DDD9D0); background: var(--card, #fff); border-radius: 8px; font-weight: 700; font-size: 16px; color: inherit; padding: 0; }
+.rpe-ej button.activo { background: #16181D; border-color: #16181D; color: #fff; }
+
+/* Proponer semana siguiente */
+.prog-tabla { display: flex; flex-direction: column; border: 1px solid var(--line, #DDD9D0); border-radius: 10px; overflow: hidden; }
+.prog-fila { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(110px, auto); gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line-soft, #ECEAE4); background: var(--card, #fff); }
+.prog-fila:first-child { border-top: 0; }
+@media (max-width: 640px) { .prog-fila { grid-template-columns: 1fr; gap: 6px; } .prog-fila > div:last-child { text-align: left !important; } }
