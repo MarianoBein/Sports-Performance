@@ -88,8 +88,16 @@ export type Item = {
   config: Config;
 };
 // Ejercicio: unidad reps o segundos. Cuestionario: formato y opciones.
-export type Config = { unidad?: 'reps' | 'seg'; formato?: 'escala' | 'opciones' | 'texto'; opciones?: string[]; min?: number; max?: number; programa?: string; hueco?: string };
+export type Config = { unidad?: 'reps' | 'seg'; formato?: 'escala' | 'opciones' | 'texto'; opciones?: string[]; min?: number; max?: number; programa?: string; hueco?: string; progresa?: boolean };
 export type Sesion = { id: string; fecha: string; destinos: Destino[]; items: Item[] };
+
+// ¿Los ejercicios de este bloque progresan en «Proponer semana siguiente»?
+// Por defecto no progresa la entrada en calor (activación, movilidad, estabilidad), en español o en inglés.
+// El PF lo puede cambiar con la casilla «Progresa» del bloque.
+const RE_SIN_PROGRESION = /activaci|activation|movilidad|mobility|warm|calentamiento|entrada en calor|estabilidad|stability|prehab/i;
+export const progresaPorDefecto = (nombre: string) => !RE_SIN_PROGRESION.test(nombre);
+export const progresaBloque = (brk: Pick<Item, 'nombre' | 'config'> | null | undefined) =>
+  !brk ? true : (brk.config?.progresa ?? progresaPorDefecto(brk.nombre));
 
 export const BREAKS_SUGERIDOS = ['Activación', 'Bloque principal', 'Accesorios'];
 

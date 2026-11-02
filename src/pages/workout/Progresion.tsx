@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { supabase, mensajeError } from '../../lib/supabase';
 import { DIAS_CORTOS, desdeIso, diaSemana, iso, sumarDias } from '../../lib/calendario';
-import { claveDestinos, itemDesdeDb, nuevoId, type Destino, type Ejercicio, type Item, type Serie } from '../../lib/workout';
+import { claveDestinos, itemDesdeDb, nuevoId, progresaBloque, type Destino, type Ejercicio, type Item, type Serie } from '../../lib/workout';
 import { destinosDe, efectivo, llave, marcarModificados, materializar, type Ctx, type Mapa } from '../../lib/planes';
 import { FICHA_VACIA, aplicar, aprendido, prescritas, proponer, salto, textoDosis, type Antecedente, type Decision, type Ficha } from '../../lib/progresion';
 import Dialogo from '../../components/Dialogo';
@@ -111,7 +111,7 @@ export function DialogoProgresion({ perfilId, nombre, lunes, biblioteca, ctx, on
 }) {
   const clave = `persona:${perfilId}`;
   const siguiente = iso(sumarDias(desdeIso(lunes), 7));
-  const [datos, setDatos] = useState<{ m: Mapa; filas: Fila[]; ficha: Ficha; aprendidos: [number, Decision][] } | null>(null);
+  const [datos, setDatos] = useState<{ m: Mapa; filas: Fila[]; ficha: Ficha; aprendidos: [number, Decision][]; fijos: number } | null>(null);
   const [elegida, setElegida] = useState<Record<string, Decision>>({});
   const [error, setError] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -143,10 +143,14 @@ export function DialogoProgresion({ perfilId, nombre, lunes, biblioteca, ctx, on
       const registros = (regs.data ?? []) as Registro[];
       const ap = aprendido((dec.data ?? []) as Antecedente[]);
       const filas: Fila[] = [];
+      let fijos = 0;
       for (let i = 0; i < 7; i++) {
         const f = iso(sumarDias(desdeIso(lunes), i));
+        let bloque: Item | null = null;
         for (const it of efectivo(clave, f, m, ctx).items) {
+          if (it.tipo === 'break') { bloque = it; continue; }
           if (it.tipo !== 'ejercicio') continue;
+          if (!progresaBloque(bloque)) { fijos++; continue; } // entrada en calor: se copia igual
           const reg = registros.find((r) => r.item_id === it.id)
             ?? registros.find((r) => r.fecha === f && (it.ejercicio_id ? r.ejercicio_id === it.ejercicio_id : r.nombre === it.nombre)) ?? null;
           const p = proponer(reg?.rpe, !!reg, ap);
@@ -154,7 +158,7 @@ export function DialogoProgresion({ perfilId, nombre, lunes, biblioteca, ctx, on
         }
       }
       setElegida(Object.fromEntries(filas.map((x) => [x.key, x.propuesta])));
-      setDatos({ m, filas, ficha, aprendidos: [...ap].map(([r, a]) => [r, a.decision]) });
+      setDatos({ m, filas, ficha, aprendidos: [...ap].map(([r, a]) => [r, a.decision]), fijos });
     })();
   }, [perfilId, lunes, ctx, clave, porId, recarga]);
 
@@ -254,6 +258,7 @@ export function DialogoProgresion({ perfilId, nombre, lunes, biblioteca, ctx, on
                 })}
               </div>
             )}
+            {datos.fijos > 0 && <p className="xs muted" style={{ margin: 0 }}>{datos.fijos} ejercicio{datos.fijos === 1 ? '' : 's'} de bloques que no progresan (entrada en calor) se copian igual. Se cambia con la casilla «Progresa» de cada session break.</p>}
             {sinRegistro > 0 && <p className="xs muted" style={{ margin: 0 }}>{sinRegistro} ejercicio{sinRegistro === 1 ? '' : 's'} sin registro: se mantienen con lo que estaba escrito.</p>}
             <p className="xs muted" style={{ margin: 0 }}>Si la semana siguiente está vacía, se copia esta semana con la nueva dosis. Si ya tiene plan, solo cambian series, reps y kilos de los ejercicios que coinciden.</p>
           </div>

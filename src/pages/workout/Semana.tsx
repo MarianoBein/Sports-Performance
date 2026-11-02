@@ -3,7 +3,7 @@ import { supabase, mensajeError } from '../../lib/supabase';
 import { useSesion } from '../../lib/sesion';
 import { DIAS_CORTOS, MESES, cargarActividades, hora, iso, lunesDe, sumarDias, hoyIso, desdeIso } from '../../lib/calendario';
 import {
-  BREAKS_SUGERIDOS, claveDestinos, esquema, textoPregunta, etiquetaMD, itemDesdeDb, nuevoId, tiempoTexto,
+  BREAKS_SUGERIDOS, claveDestinos, esquema, progresaBloque, progresaPorDefecto, textoPregunta, etiquetaMD, itemDesdeDb, nuevoId, tiempoTexto,
   type Destino, type Ejercicio, type Item,
 } from '../../lib/workout';
 import {
@@ -522,6 +522,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                               background: '#2B2E36', boxShadow: sel.includes(t.brk.id) ? `inset 0 0 0 2px ${accent}, inset 6px 0 0 ${accent}` : undefined,
                             }}>
                             {t.brk.nombre} <span style={{ fontWeight: 500, opacity: 0.7 }}>({t.items.filter((x) => x.tipo === 'ejercicio').length})</span>
+                            {!progresaBloque(t.brk) && <span title="Este bloque no progresa en «Proponer semana siguiente»" style={{ fontWeight: 500, opacity: 0.7, textTransform: 'none' }}> · no progresa</span>}
                           </button>
                         )}
                         {t.items.map((it, ii) => {
@@ -678,12 +679,17 @@ function DialogoConflictos({ lista, nombrePlan, etiquetaDia, onCerrar, onAplicar
 
 export function EditorBreak({ item, sugeridos, onCerrar, onGuardar }: { item: Item | null; sugeridos: string[]; onCerrar: () => void; onGuardar: (it: Item) => void }) {
   const [nombre, setNombre] = useState(item?.nombre ?? '');
+  // Si nunca tocaste la casilla, sigue al nombre (Activación → no progresa). Si la tocaste, manda lo que elegiste.
+  const [progresa, setProgresa] = useState<boolean | undefined>(item?.config?.progresa);
+  const efectivo = progresa ?? progresaPorDefecto(nombre);
   const ok = nombre.trim().length > 0;
   const guardar = () => {
     if (!ok) return;
+    const config = { ...(item?.config ?? {}) };
+    if (progresa === undefined) delete config.progresa; else config.progresa = progresa;
     onGuardar({
       id: item?.id ?? nuevoId(), tipo: 'break', bloque: 'Bloque principal', ejercicio_id: null, nombre: nombre.trim(), series: 0, reps: '',
-      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: '', origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false, config: {},
+      cada_lado: false, con_carga: false, detalle: [], descanso_seg: null, nota: '', origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false, config,
     });
   };
   return (
@@ -700,6 +706,13 @@ export function EditorBreak({ item, sugeridos, onCerrar, onGuardar }: { item: It
         <div className="row" style={{ gap: 6 }}>
           {sugeridos.map((n) => <button key={n} type="button" className="chip" aria-pressed={nombre === n} onClick={() => setNombre(n)}>{n}</button>)}
         </div>
+        <label className="row" style={{ gap: 10, cursor: 'pointer', alignItems: 'flex-start', flexWrap: 'nowrap' }}>
+          <input type="checkbox" checked={efectivo} onChange={(e) => setProgresa(e.target.checked)} style={{ width: 20, height: 20, marginTop: 2, flex: 'none', accentColor: '#16181D' }} />
+          <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <strong style={{ fontSize: 14 }}>Progresa</strong>
+            <span className="xs muted">Si está marcado, «Proponer semana siguiente» sube o mantiene la carga de estos ejercicios. Desmarcado, se copian igual (por ejemplo, la entrada en calor).</span>
+          </span>
+        </label>
         <p className="xs muted" style={{ margin: 0 }}>Todo lo que quede debajo pertenece a este break, hasta el siguiente.</p>
       </div>
     </Dialogo>
