@@ -171,3 +171,8 @@ button.org-item:hover { background: #F1EFEA; }
 .prog-fila { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(110px, auto); gap: 10px; align-items: center; padding: 8px 12px; border-top: 1px solid var(--line-soft, #ECEAE4); background: var(--card, #fff); }
 .prog-fila:first-child { border-top: 0; }
 @media (max-width: 640px) { .prog-fila { grid-template-columns: 1fr; gap: 6px; } .prog-fila > div:last-child { text-align: left !important; } }
+
+/* Gracias después del wellness / RPE */
+.gracias { position: fixed; inset: 0; z-index: 50; background: var(--bg, #F6F5F2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; animation: gracias-entra .18s ease-out; }
+.gracias-check { width: 84px; height: 84px; border-radius: 42px; background: #1E9E4A; color: #fff; display: flex; align-items: center; justify-content: center; }
+@keyframes gracias-entra { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }

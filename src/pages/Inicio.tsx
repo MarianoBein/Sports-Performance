@@ -79,6 +79,24 @@ export default function Inicio() {
 
       {perfil.rol.es_jugador && <TarjetaAvisos compacta />}
 
+      {estado?.wellness_hecho && (
+        <Link to="/wellness" className="card" style={{ padding: 16, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, boxShadow: 'inset 4px 0 0 #1E9E4A, 0 1px 2px rgba(22,24,29,.06)' }}>
+          <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <strong style={{ fontSize: 17 }}>Wellness ✓</strong>
+            <span className="small muted">Preparación {Number(estado.preparacion).toLocaleString('es-ES', { maximumFractionDigits: 1 })} · tocá para cambiarlo</span>
+          </span>
+          <span aria-hidden="true" style={{ width: 34, height: 34, borderRadius: 17, background: '#1E9E4A', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>✓</span>
+        </Link>
+      )}
+      {estado?.rpe_hecho && (
+        <Link to="/rpe" className="card" style={{ padding: 16, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, boxShadow: 'inset 4px 0 0 #C8162B, 0 1px 2px rgba(22,24,29,.06)' }}>
+          <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <strong style={{ fontSize: 17 }}>RPE de hoy: {estado.rpe}</strong>
+            <span className="small muted">Tocá para cambiarlo</span>
+          </span>
+          <span aria-hidden="true" style={{ width: 34, height: 34, borderRadius: 17, background: '#1E9E4A', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>✓</span>
+        </Link>
+      )}
       {estado?.wellness_toca && !estado.wellness_hecho && (
         <Link to="/wellness" className="card" style={{ padding: 16, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, boxShadow: 'inset 4px 0 0 #1E9E4A, 0 1px 2px rgba(22,24,29,.06)' }}>
           <span style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -97,11 +115,9 @@ export default function Inicio() {
           <span className="btn btn-primary" style={{ pointerEvents: 'none' }}>Responder</span>
         </Link>
       )}
-      {estado && (estado.wellness_hecho || estado.rpe_hecho || (estado.rpe_toca && !estado.rpe_disponible)) && (
-        <div className="card row small" style={{ padding: '12px 16px', gap: '6px 16px' }}>
-          {estado.wellness_hecho && <span>Wellness ✓ · preparación <strong>{Number(estado.preparacion).toLocaleString('es-ES', { maximumFractionDigits: 1 })}</strong> <Link to="/wellness" className="xs">corregir</Link></span>}
-          {estado.rpe_hecho && <span>RPE ✓ · <strong>{estado.rpe}</strong> <Link to="/rpe" className="xs">corregir</Link></span>}
-          {estado.rpe_toca && !estado.rpe_hecho && !estado.rpe_disponible && <span className="muted">El RPE se habilita a las {estado.rpe_desde}.</span>}
+      {estado && estado.rpe_toca && !estado.rpe_hecho && !estado.rpe_disponible && (
+        <div className="card row small" style={{ padding: '12px 16px' }}>
+          <span className="muted">El RPE se habilita a las {estado.rpe_desde}.</span>
         </div>
       )}
 

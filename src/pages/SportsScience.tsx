@@ -84,7 +84,15 @@ function VistaDia({ edita }: { edita: boolean }) {
 
   async function guardarMin(m: number | null, perfil?: string) {
     const { error } = await supabase.rpc('guardar_minutos', { p_fecha: fecha, p_minutos: m, p_perfil: perfil ?? null });
-    if (error) setError(mensajeError(error)); else cargar();
+    if (error) { setError(mensajeError(error)); return; }
+    // Los minutos de un jugador se copian a los que todavía están vacíos; los que ya tienen, no se tocan.
+    if (perfil && m !== null) {
+      const vacios = filas.filter((f) => f.perfil_id !== perfil && f.minutos === null);
+      const rs = await Promise.all(vacios.map((f) => supabase.rpc('guardar_minutos', { p_fecha: fecha, p_minutos: m, p_perfil: f.perfil_id })));
+      const e = rs.find((r) => r.error)?.error;
+      if (e) setError(mensajeError(e));
+    }
+    cargar();
   }
 
   async function marcar(c: Cuest, aplica: boolean | null, perfil?: string) {
@@ -145,7 +153,7 @@ function VistaDia({ edita }: { edita: boolean }) {
       <div className="card row" style={{ padding: '12px 16px' }}>
         <strong style={{ fontSize: 14 }}>Minutos de entrenamiento del equipo</strong>
         {edita ? <MinutosInput valor={minEquipo} etiqueta="Minutos del equipo" onGuardar={(m) => guardarMin(m)} /> : <span>{minEquipo ?? '—'}</span>}
-        <span className="xs muted">Se usan para el esfuerzo (sRPE = RPE × minutos). Si un jugador hizo distinto, cámbialo en su fila.</span>
+        <span className="xs muted">Se usan para el esfuerzo (sRPE = RPE × minutos). Si cargás un jugador, los que están vacíos toman el mismo número; después cambiá solo los distintos.</span>
       </div>
 
       <div className="card table-wrap">

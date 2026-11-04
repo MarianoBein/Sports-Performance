@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Gracias from '../components/Gracias';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { COLORES_5, PREGUNTAS, TEXTO_5, bienDe, type Pregunta } from '../lib/wellness';
@@ -16,6 +17,9 @@ export default function Wellness() {
   const [v, setV] = useState<Valores>({ sueno: null, fatiga: null, estres: null, dolor: null });
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [listo, setListo] = useState(false);
+  const espera = useRef<number | null>(null);
+  useEffect(() => () => { if (espera.current) window.clearTimeout(espera.current); }, []);
 
   // Si ya contestó hoy, se cargan sus respuestas para poder corregirlas.
   useEffect(() => {
@@ -28,14 +32,22 @@ export default function Wellness() {
 
   const completo = PREGUNTAS.every((p) => v[p.clave] !== null);
 
-  async function enviar() {
-    if (!completo) return;
+  // Cuando están las cuatro respuestas, se guarda solo (con una pausa por si cambia otra al toque).
+  async function enviar(x: Valores) {
     setEnviando(true); setError('');
-    const { error } = await supabase.rpc('guardar_wellness', { p_sueno: v.sueno, p_fatiga: v.fatiga, p_estres: v.estres, p_dolor: v.dolor });
+    const { error } = await supabase.rpc('guardar_wellness', { p_sueno: x.sueno, p_fatiga: x.fatiga, p_estres: x.estres, p_dolor: x.dolor });
     setEnviando(false);
     if (error) { setError(mensajeError(error)); return; }
-    nav(destino, { replace: true });
+    setListo(true);
   }
+  function elegir(clave: Pregunta['clave'], n: number) {
+    const x = { ...v, [clave]: n };
+    setV(x);
+    if (espera.current) window.clearTimeout(espera.current);
+    if (PREGUNTAS.every((p) => x[p.clave] !== null)) espera.current = window.setTimeout(() => { void enviar(x); }, 1200);
+  }
+  const cerrar = useCallback(() => nav(destino, { replace: true }), [nav, destino]);
+  if (listo) return <Gracias titulo="¡Gracias!" detalle="Tu wellness de hoy quedó guardado. Si te equivocaste, volvé a entrar y cambiá la respuesta." onCerrar={cerrar} />;
 
   return (
     <div className="stack" style={{ maxWidth: 520, margin: '0 auto' }}>
@@ -54,7 +66,7 @@ export default function Wellness() {
               {[1, 2, 3, 4, 5].map((n) => {
                 const on = sel === n;
                 return (
-                  <button key={n} type="button" aria-pressed={on} aria-label={`${n}: ${p.frases[n - 1]}`} onClick={() => setV({ ...v, [p.clave]: n })}
+                  <button key={n} type="button" aria-pressed={on} aria-label={`${n}: ${p.frases[n - 1]}`} disabled={enviando} onClick={() => elegir(p.clave, n)}
                     style={{ height: 52, borderRadius: 12, fontSize: 18, fontWeight: 700, border: on ? `3px solid ${COLORES_5[n - 1]}` : '1.5px solid var(--field)',
                       background: on ? COLORES_5[n - 1] : `${COLORES_5[n - 1]}1F`, color: on ? TEXTO_5[n - 1] : 'var(--ink)', transform: on ? 'scale(1.04)' : undefined }}>
                     {n}
@@ -72,9 +84,7 @@ export default function Wellness() {
         );
       })}
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
-      <button type="button" className="btn btn-primary btn-block" disabled={!completo || enviando} onClick={enviar}>
-        {enviando ? 'Enviando…' : completo ? 'Enviar' : 'Responde las cuatro'}
-      </button>
+      <p className="xs muted" style={{ margin: 0, textAlign: 'center' }}>{enviando ? 'Guardando…' : completo ? 'Se guarda solo.' : 'Respondé las cuatro: se guarda solo.'}</p>
     </div>
   );
 }

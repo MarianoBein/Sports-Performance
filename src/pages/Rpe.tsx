@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import Gracias from '../components/Gracias';
 import { useNavigate } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { RPE } from '../lib/wellness';
@@ -11,6 +12,9 @@ export default function Rpe() {
   const [valor, setValor] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [listo, setListo] = useState(false);
+  const espera = useRef<number | null>(null);
+  useEffect(() => () => { if (espera.current) window.clearTimeout(espera.current); }, []);
 
   useEffect(() => {
     if (!perfil) return;
@@ -18,14 +22,21 @@ export default function Rpe() {
       .then(({ data }) => { if (data) setValor(data.valor); });
   }, [perfil]);
 
-  async function enviar() {
-    if (!valor) return;
+  // Tocar un número ya lo guarda (con una pausa cortita por si corrige al toque).
+  async function enviar(v: number) {
     setEnviando(true); setError('');
-    const { error } = await supabase.rpc('guardar_rpe', { p_valor: valor });
+    const { error } = await supabase.rpc('guardar_rpe', { p_valor: v });
     setEnviando(false);
     if (error) { setError(mensajeError(error)); return; }
-    nav('/', { replace: true });
+    setListo(true);
   }
+  function elegir(v: number) {
+    setValor(v);
+    if (espera.current) window.clearTimeout(espera.current);
+    espera.current = window.setTimeout(() => { void enviar(v); }, 600);
+  }
+  const cerrar = useCallback(() => nav('/', { replace: true }), [nav]);
+  if (listo && valor) return <Gracias titulo="¡Gracias!" detalle={`Tu RPE de hoy quedó guardado: ${valor}. Si te equivocaste, volvé a entrar y tocá otro número.`} onCerrar={cerrar} />;
 
   return (
     <div className="stack" style={{ maxWidth: 520, margin: '0 auto' }}>
@@ -37,7 +48,7 @@ export default function Rpe() {
         {RPE.map((r) => {
           const on = valor === r.valor;
           return (
-            <button key={r.valor} type="button" role="radio" aria-checked={on} onClick={() => setValor(r.valor)}
+            <button key={r.valor} type="button" role="radio" aria-checked={on} disabled={enviando} onClick={() => elegir(r.valor)}
               style={{ minHeight: 48, borderRadius: 10, border: on ? '3px solid var(--ink)' : '0', display: 'flex', alignItems: 'center', gap: 14, padding: '0 14px',
                 background: r.color, color: r.texto, opacity: valor && !on ? 0.55 : 1, textAlign: 'left' }}>
               <span className="display" style={{ fontSize: 26, width: 30 }}>{r.valor}</span>
@@ -48,9 +59,7 @@ export default function Rpe() {
         })}
       </div>
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
-      <button type="button" className="btn btn-primary btn-block" disabled={!valor || enviando} onClick={enviar}>
-        {enviando ? 'Enviando…' : 'Enviar'}
-      </button>
+      <p className="xs muted" style={{ margin: 0, textAlign: 'center' }}>{enviando ? 'Guardando…' : 'Tocá un número: se guarda solo.'}</p>
     </div>
   );
 }
