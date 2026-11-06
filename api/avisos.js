@@ -8,9 +8,17 @@ const PUBLICA_VAPID = process.env.VAPID_PUBLIC_KEY;
 const PRIVADA_VAPID = process.env.VAPID_PRIVATE_KEY;
 const CRON = process.env.CRON_SECRET;
 
+// Fecha de hoy en Madrid (YYYY-MM-DD) y cómo se dice («martes 3/11»).
+const hoyMadrid = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(new Date());
+const diaMadrid = () => {
+  const d = new Date();
+  const nombre = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', weekday: 'long' }).format(d);
+  const [dd, mm] = new Intl.DateTimeFormat('es-ES', { timeZone: 'Europe/Madrid', day: 'numeric', month: 'numeric' }).format(d).split('/');
+  return `${nombre} ${dd}/${mm}`;
+};
 const TEXTOS = {
-  wellness: { titulo: 'Wellness', cuerpo: '¿Cómo llegás hoy? Contestá tu wellness: son cuatro respuestas.', url: '/wellness' },
-  rpe: { titulo: 'RPE', cuerpo: '¿Qué tan duro fue hoy? Cargá tu RPE.', url: '/rpe' },
+  wellness: (dia) => ({ titulo: 'Wellness', cuerpo: `¿Cómo llegás hoy (${dia})? Contestá tu wellness: son cuatro respuestas.`, url: '/wellness' }),
+  rpe: (dia) => ({ titulo: 'RPE', cuerpo: `¿Qué tan duro fue hoy (${dia})? Cargá tu RPE.`, url: '/rpe' }),
 };
 
 async function rpc(nombre, cuerpo) {
@@ -34,11 +42,12 @@ export default async function handler(req, res) {
   let enviados = 0; let quitados = 0; let fallidos = 0;
   try {
     const avisos = (await rpc('tomar_avisos')) || [];
+    const fecha = hoyMadrid(); const dia = diaMadrid();
     for (const a of avisos) {
-      const t = TEXTOS[a.tipo];
+      const t = TEXTOS[a.tipo](dia);
       try {
         await webpush.sendNotification({ endpoint: a.endpoint, keys: { p256dh: a.p256dh, auth: a.auth } },
-          JSON.stringify({ titulo: t.titulo, cuerpo: t.cuerpo, url: t.url, tag: a.tipo }), { TTL: 3600 });
+          JSON.stringify({ titulo: t.titulo, cuerpo: t.cuerpo, url: t.url, tag: a.tipo, fecha }), { TTL: 3600, urgency: 'high' });
         enviados++;
       } catch (e) {
         if (e && (e.statusCode === 404 || e.statusCode === 410)) { await rpc('quitar_suscripcion', { p_endpoint: a.endpoint }); quitados++; }

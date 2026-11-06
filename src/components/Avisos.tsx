@@ -9,7 +9,7 @@ export default function TarjetaAvisos({ compacta = false }: { compacta?: boolean
   const [ocupado, setOcupado] = useState(false);
   useEffect(() => { estadoAvisos().then(setEstado).catch(() => setEstado('no-soportado')); }, []);
   if (!estado || estado === 'no-soportado') return null;
-  if (compacta && (estado === 'activos' || estado === 'instalar-primero')) return null;
+  if (compacta && estado === 'activos') return null;   // en iPhone desde Safari SÍ se muestra: sin instalar no llegan avisos
 
   async function activar() {
     setOcupado(true); setError('');

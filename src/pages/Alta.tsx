@@ -13,7 +13,7 @@ const Atras = ({ onClick }: { onClick: () => void }) => (
 );
 
 export default function Alta() {
-  const { sesion, perfil, recargar, salir } = useSesion();
+  const { sesion, perfil, recargar, salir, errorCarga, cargando } = useSesion();
   const nav = useNavigate();
   const [paso, setPaso] = useState<Paso>('codigo');
   const [params] = useSearchParams();
@@ -27,6 +27,8 @@ export default function Alta() {
   const [ocupado, setOcupado] = useState(false);
 
   if (perfil && paso !== 'listo') return <Navigate to="/" replace />;
+  if (sesion && !perfil && errorCarga) return <Navigate to="/" replace />;
+  if (sesion && !perfil && cargando) return <p className="page muted">Cargando…</p>;   // falló la carga: no es que falte el código
   const completando = !!sesion && !perfil; // tiene cuenta pero le falta canjear el código
 
   async function comprobar(e: FormEvent) {

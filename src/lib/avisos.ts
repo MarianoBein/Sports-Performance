@@ -38,6 +38,24 @@ export async function activarAvisos(): Promise<EstadoAvisos> {
   return 'activos';
 }
 
+// Al abrir la app: si el permiso está dado, se asegura de que el servidor tenga la suscripción
+// de este celular y a nombre de esta persona (si se borró o quedó de otra cuenta, la vuelve a guardar).
+export async function asegurarAvisos(): Promise<void> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  if (esIOS() && !instalada()) return;
+  const reg = (await navigator.serviceWorker.getRegistration('/sw.js')) ?? await navigator.serviceWorker.register('/sw.js');
+  await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    const clave = await clavePublica();
+    if (!clave) return;
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(clave) });
+  }
+  const j = sub.toJSON();
+  await supabase.rpc('guardar_suscripcion', { p_endpoint: sub.endpoint, p_p256dh: j.keys?.p256dh ?? '', p_auth: j.keys?.auth ?? '' });
+}
+
 export async function desactivarAvisos(): Promise<void> {
   const reg = await navigator.serviceWorker.getRegistration('/sw.js');
   const sub = await reg?.pushManager.getSubscription();
