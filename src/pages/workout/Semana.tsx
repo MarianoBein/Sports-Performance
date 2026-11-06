@@ -26,8 +26,8 @@ const primeroDeMes = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
 
 export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca: Ejercicio[]; onBibliotecaCambio: (e: Ejercicio) => void }) {
   const { perfil, esDueno } = useSesion();
-  const [vista, setVista] = useState<Vista>('semana');
-  const [ancla, setAncla] = useState(() => lunesDe(new Date())); // lunes (semana) o día 1 (mes)
+  const [vista, setVista] = useState<Vista>('mes');   // abre en Mes: es más fácil encontrar los ejercicios
+  const [ancla, setAncla] = useState(() => primeroDeMes(new Date())); // lunes (semana) o día 1 (mes)
   const dias = useMemo(() => {
     const desde = vista === 'semana' ? ancla : lunesDe(ancla);
     const finMes = new Date(ancla.getFullYear(), ancla.getMonth() + 1, 0);

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Dialogo from '../../components/Dialogo';
 import { supabase, mensajeError } from '../../lib/supabase';
-import { CATEGORIAS, nuevoId, normalizar, type Ejercicio, type Item, type Serie } from '../../lib/workout';
+import { CATEGORIAS, nuevoId, normalizar, type Ejercicio, type Item, type Serie, type Config, RE_TEMPO, idYoutube } from '../../lib/workout';
 
 const leerKg = (t: string): number | null => {
   const v = t.trim().replace(',', '.');
@@ -11,16 +11,16 @@ const leerKg = (t: string): number | null => {
 };
 
 // Una fila por serie. Lo que escribís en la primera se copia a las que no tocaste.
-type Fila = { reps: string; kg: string; tocadaReps: boolean; tocadaKg: boolean };
+type Fila = { reps: string; kg: string; tempo: string; tocadaReps: boolean; tocadaKg: boolean; tocadaTempo: boolean };
 const kgAtexto = (kg: number | null | undefined) => (kg == null ? '' : String(kg).replace('.', ','));
 
 function filasIniciales(item: Item | null): Fila[] {
-  if (!item) return Array.from({ length: 3 }, () => ({ reps: '', kg: '', tocadaReps: false, tocadaKg: false }));
+  if (!item) return Array.from({ length: 3 }, () => ({ reps: '', kg: '', tempo: '', tocadaReps: false, tocadaKg: false, tocadaTempo: false }));
   const det: Serie[] = item.detalle.length ? item.detalle : Array.from({ length: item.series }, () => ({ reps: item.reps, kg: null }));
-  const r0 = det[0]?.reps ?? ''; const k0 = kgAtexto(det[0]?.kg);
+  const r0 = det[0]?.reps ?? ''; const k0 = kgAtexto(det[0]?.kg); const t0 = det[0]?.tempo ?? '';
   return Array.from({ length: item.series }, (_, i) => {
     const d = det[i] ?? det[det.length - 1] ?? { reps: '', kg: null };
-    return { reps: d.reps ?? '', kg: kgAtexto(d.kg), tocadaReps: i > 0 && (d.reps ?? '') !== r0, tocadaKg: i > 0 && kgAtexto(d.kg) !== k0 };
+    return { reps: d.reps ?? '', kg: kgAtexto(d.kg), tempo: d.tempo ?? '', tocadaReps: i > 0 && (d.reps ?? '') !== r0, tocadaKg: i > 0 && kgAtexto(d.kg) !== k0, tocadaTempo: i > 0 && (d.tempo ?? '') !== t0 };
   });
 }
 
@@ -48,6 +48,8 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
   const [min, setMin] = useState(item?.descanso_seg != null ? String(Math.floor(item.descanso_seg / 60)) : '1');
   const [seg, setSeg] = useState(item?.descanso_seg != null ? String(item.descanso_seg % 60).padStart(2, '0') : '30');
   const [conNota, setConNota] = useState(!!item?.nota);
+  const [conTempo, setConTempo] = useState(() => !!item?.detalle.some((d) => d.tempo));
+  const [verVideo, setVerVideo] = useState(false);
   const [nota, setNota] = useState(item?.nota ?? '');
   const [error, setError] = useState('');
   const [creando, setCreando] = useState(false);
@@ -64,17 +66,25 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
     const v = Math.min(20, Math.max(1, n));
     setFilas((f) => {
       const out = f.slice(0, v);
-      while (out.length < v) out.push({ reps: f[0]?.reps ?? '', kg: f[0]?.kg ?? '', tocadaReps: false, tocadaKg: false });
+      while (out.length < v) out.push({ reps: f[0]?.reps ?? '', kg: f[0]?.kg ?? '', tempo: f[0]?.tempo ?? '', tocadaReps: false, tocadaKg: false, tocadaTempo: false });
       return out;
     });
   }
 
-  function cambiarFila(i: number, campo: 'reps' | 'kg', valor: string) {
+  function cambiarFila(i: number, campo: 'reps' | 'kg' | 'tempo', valor: string) {
+    const marca = campo === 'reps' ? 'tocadaReps' : campo === 'kg' ? 'tocadaKg' : 'tocadaTempo';
     setFilas((f) => f.map((x, j) => {
-      if (j === i) return { ...x, [campo]: valor, ...(i > 0 ? (campo === 'reps' ? { tocadaReps: true } : { tocadaKg: true }) : {}) };
-      if (i === 0 && !(campo === 'reps' ? x.tocadaReps : x.tocadaKg)) return { ...x, [campo]: valor };
+      if (j === i) return { ...x, [campo]: valor, ...(i > 0 ? { [marca]: true } : {}) };
+      if (i === 0 && !x[marca]) return { ...x, [campo]: valor };
       return x;
     }));
+  }
+
+  // Al elegir un ejercicio de la biblioteca: si es unilateral, «cada lado» viene marcado.
+  function elegir(e: { id: string | null; nombre: string }) {
+    setElegido(e); setBusca(e.nombre); setAbierto(false); setVerVideo(false);
+    const lat = biblioteca.find((b) => b.id === e.id)?.lateralidad;
+    if (lat) setCadaLado(/unilateral/i.test(lat));
   }
 
   async function crearEnBiblioteca() {
@@ -101,12 +111,22 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
     for (const f of filas) {
       if (f.kg.trim() && leerKg(f.kg) == null) { setError('Los kilos tienen que ser un número (por ejemplo, 22,5).'); return; }
     }
-    const det = filas.map((f) => ({ reps: f.reps.trim(), kg: leerKg(f.kg) }));
+    const limpiarTempo = (t: string) => t.toUpperCase().replace(/\s+/g, '').replace(/[.,/]/g, '-');
+    if (conTempo && filas.some((f) => f.tempo.trim() && !RE_TEMPO.test(limpiarTempo(f.tempo)))) {
+      setError('El tempo va como excéntrica-pausa-concéntrica en segundos, por ejemplo 5-1-1 (X = explosivo).'); return;
+    }
+    const det: Serie[] = filas.map((f) => {
+      const d: Serie = { reps: f.reps.trim(), kg: leerKg(f.kg) };
+      if (conTempo && f.tempo.trim()) d.tempo = limpiarTempo(f.tempo);
+      return d;
+    });
+    const config: Config = { ...(item?.config ?? {}), unidad };
+    delete (config as Record<string, unknown>).tempo;
     onGuardar({
       id: item?.id ?? nuevoId(), tipo: 'ejercicio', bloque: item?.bloque ?? 'Bloque principal', ejercicio_id: elegido.id, nombre: elegido.nombre,
       series, reps: det[0]?.reps ?? '', cada_lado: cadaLado, con_carga: det.some((d) => d.kg != null), detalle: det,
       descanso_seg: descanso, nota: conNota ? nota.trim() : '', origen_id: item?.origen_id ?? null, modificado: item?.modificado ?? false,
-      config: { ...(item?.config ?? {}), unidad },
+      config,
     });
     if (!item) {
       // La ventana queda abierta para seguir agregando: se limpia el ejercicio y se mantiene el resto.
@@ -138,16 +158,20 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
             <input ref={buscador} id="it-ejercicio" aria-labelledby="it-ejercicio-label" className="input" autoFocus={!item} autoComplete="off" value={busca} placeholder="Escribí para buscar…"
               role="combobox" aria-expanded={abierto && busca.trim().length > 0} aria-controls="it-sugerencias"
               onChange={(e) => { setBusca(e.target.value); setAbierto(true); setElegido(null); }}
-              onKeyDown={(e) => { if (e.key === 'Enter' && sugerencias[0]) { e.preventDefault(); setElegido({ id: sugerencias[0].id, nombre: sugerencias[0].nombre }); setBusca(sugerencias[0].nombre); setAbierto(false); } }} />
+              onKeyDown={(e) => { if (e.key === 'Enter' && sugerencias[0]) { e.preventDefault(); elegir({ id: sugerencias[0].id, nombre: sugerencias[0].nombre }); } }} />
             {abierto && busca.trim() && (
               <ul id="it-sugerencias" role="listbox" className="card" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 5, listStyle: 'none', margin: '4px 0 0', padding: 4, boxShadow: '0 8px 24px rgba(0,0,0,.12)', maxHeight: 300, overflowY: 'auto' }}>
                 {sugerencias.map((s) => (
-                  <li key={s.id} role="option" aria-selected={false}>
-                    <button type="button" onClick={() => { setElegido({ id: s.id, nombre: s.nombre }); setBusca(s.nombre); setAbierto(false); }}
-                      style={{ width: '100%', textAlign: 'left', border: 0, background: 'transparent', padding: '8px 10px', borderRadius: 8, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                  <li key={s.id} role="option" aria-selected={false} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button type="button" onClick={() => elegir({ id: s.id, nombre: s.nombre })}
+                      style={{ flex: 1, minWidth: 0, textAlign: 'left', border: 0, background: 'transparent', padding: '8px 10px', borderRadius: 8, display: 'flex', justifyContent: 'space-between', gap: 10 }}>
                       <span style={{ fontWeight: 500 }}>{s.nombre}</span>
                       <span className="xs muted">{s.categoria ?? ''}</span>
                     </button>
+                    {s.video_url && (
+                      <button type="button" className="btn btn-sm btn-ghost" aria-label={`Ver el video de ${s.nombre}`} title="Ver video"
+                        onClick={() => { elegir({ id: s.id, nombre: s.nombre }); setVerVideo(true); }} style={{ flex: 'none', width: 34, padding: 0 }}>▶</button>
+                    )}
                   </li>
                 ))}
                 {!existeExacto && (
@@ -169,6 +193,27 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
           </label>
         </div>
 
+        {/* Ver el video antes de sumarlo */}
+        {(() => {
+          const ej = elegido?.id ? biblioteca.find((b) => b.id === elegido.id) : undefined;
+          if (!ej?.video_url) return null;
+          const vid = idYoutube(ej.video_url);
+          return (
+            <div className="stack" style={{ gap: 8 }}>
+              <div className="row" style={{ gap: 8 }}>
+                <button type="button" className="btn btn-sm" aria-pressed={verVideo} onClick={() => setVerVideo(!verVideo)}>{verVideo ? '✕ Cerrar video' : '▶ Ver video'}</button>
+                {ej.lateralidad && <span className="xs muted">{ej.lateralidad}{ej.implemento ? ` · ${ej.implemento}` : ''}</span>}
+              </div>
+              {verVideo && (vid ? (
+                <div style={{ borderRadius: 14, overflow: 'hidden', background: '#000', aspectRatio: '9 / 16', maxHeight: 420, width: '100%', maxWidth: 236 }}>
+                  <iframe title={`Video de ${ej.nombre}`} src={`https://www.youtube-nocookie.com/embed/${vid}?rel=0&playsinline=1&autoplay=1&mute=1`}
+                    allow="autoplay; accelerometer; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ border: 0, width: '100%', height: '100%' }} />
+                </div>
+              ) : <a className="btn btn-sm" href={ej.video_url} target="_blank" rel="noopener noreferrer" style={{ alignSelf: 'flex-start' }}>Abrir video ↗</a>)}
+            </div>
+          );
+        })()}
+
         <div className="row" style={{ gap: 16, alignItems: 'flex-end' }}>
           <div className="field"><span>Series</span>
             <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
@@ -184,14 +229,18 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
             </div>
           </div>
           <label className="row" style={{ gap: 8, minHeight: 44, cursor: 'pointer' }}>
+            <input id="it-tempo" type="checkbox" checked={conTempo} onChange={(e) => setConTempo(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#16181D' }} />
+            <span>Tempo</span>
+          </label>
+          <label className="row" style={{ gap: 8, minHeight: 44, cursor: 'pointer' }}>
             <input id="it-lado" type="checkbox" checked={cadaLado} onChange={(e) => setCadaLado(e.target.checked)} style={{ width: 18, height: 18, accentColor: '#16181D' }} />
             <span>Cada lado</span>
           </label>
         </div>
 
         <div>
-          <table className="tbl" style={{ maxWidth: 380 }}>
-            <thead><tr><th>Serie</th><th>{unidad === 'seg' ? 'Segundos' : 'Reps'}{cadaLado ? ' c/lado' : ''}</th><th>Kg</th></tr></thead>
+          <table className="tbl" style={{ maxWidth: conTempo ? 520 : 380 }}>
+            <thead><tr><th>Serie</th><th>{unidad === 'seg' ? 'Segundos' : 'Reps'}{cadaLado ? ' c/lado' : ''}</th><th>Kg</th>{conTempo && <th>Tempo <span className="xs muted" style={{ fontWeight: 400 }}>exc-pausa-con</span></th>}</tr></thead>
             <tbody>
               {filas.map((f, i) => (
                 <tr key={i}>
@@ -202,11 +251,14 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
                   <td><input className="input" id={`it-kg-${i}`} style={{ height: 38, width: 100, color: i > 0 && !f.tocadaKg ? 'var(--muted)' : undefined }}
                     inputMode="decimal" aria-label={`Kilos de la serie ${i + 1}`} placeholder="—" value={f.kg}
                     onChange={(e) => cambiarFila(i, 'kg', e.target.value)} /></td>
+                  {conTempo && <td><input className="input" id={`it-tempo-${i}`} style={{ height: 38, width: 96, color: i > 0 && !f.tocadaTempo ? 'var(--muted)' : undefined }}
+                    aria-label={`Tempo de la serie ${i + 1}`} maxLength={8} placeholder={i === 0 ? '5-1-1' : ''} value={f.tempo}
+                    onChange={(e) => cambiarFila(i, 'tempo', e.target.value)} /></td>}
                 </tr>
               ))}
             </tbody>
           </table>
-          <p className="xs muted" style={{ margin: '4px 0 0' }}>Lo que pongas en la serie 1 se copia a las demás; si cambiás otra serie, esa queda como la dejaste. Los kilos se pueden dejar vacíos.</p>
+          <p className="xs muted" style={{ margin: '4px 0 0' }}>Lo que pongas en la serie 1 se copia a las demás; si cambiás otra serie, esa queda como la dejaste. Los kilos se pueden dejar vacíos.{conTempo ? ' Tempo: excéntrica-pausa-concéntrica en segundos (5-1-1), X = explosivo.' : ''}</p>
         </div>
 
         {conDescanso ? (
@@ -229,6 +281,7 @@ export default function EditorItem({ dia, item, biblioteca, jugadores = [], juga
             </div>
           </label>
         ) : null}
+
 
         {(!conDescanso || !conNota) && (
           <div className="row" style={{ gap: 8 }}>

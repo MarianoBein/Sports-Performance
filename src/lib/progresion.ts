@@ -66,7 +66,7 @@ export function prescritas(it: Item): Serie[] {
 
 // Devuelve la dosis de la semana siguiente (no cambia el ejercicio).
 export function aplicar(it: Item, hecho: Serie[] | null | undefined, d: Decision, paso: number): { detalle: Serie[]; nota: string } {
-  const base = prescritas(it).map((p, i) => ({ reps: p.reps, kg: hecho?.[i]?.kg ?? p.kg }));
+  const base = prescritas(it).map((p, i) => ({ ...p, reps: p.reps, kg: hecho?.[i]?.kg ?? p.kg }));   // el tempo se conserva
   if (!base.length) return { detalle: base, nota: '' };
   if (d === 'mantener') return { detalle: base, nota: '' };
   const conKg = base.some((s) => s.kg != null && s.kg > 0);

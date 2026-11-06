@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase, mensajeError } from '../../lib/supabase';
 import { useSesion } from '../../lib/sesion';
 import { DIAS, MESES, desdeIso, diaSemana, hoyIso, iso, sumarDias } from '../../lib/calendario';
-import { esquema, idYoutube, tiempoTexto, unidadTexto, type Config, type Item, type Serie } from '../../lib/workout';
+import { esquema, idYoutube, tiempoTexto, unidadTexto, type Config, type Item, type Serie, tempoLargo } from '../../lib/workout';
 import type { EstadoHoy } from '../../lib/wellness';
 
 type ItemEntreno = {
@@ -183,6 +183,17 @@ function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado 
       </div>
 
       {e.consignas && <p className="small" style={{ margin: 0 }}><strong>Cómo se hace: </strong>{e.consignas}</p>}
+      {(() => {
+        const tempos = (e.detalle ?? []).map((d) => d.tempo ?? '');
+        if (!tempos.some(Boolean)) return null;
+        const uno = new Set(tempos).size === 1 ? tempos[0] : null;
+        return (
+          <div style={{ background: '#EEF3FF', color: '#1E3A8A', borderRadius: 12, padding: '10px 14px' }}>
+            <div className="xs" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>Tempo de cada repetición</div>
+            <div style={{ fontSize: 15, fontWeight: 600 }}>{uno ? tempoLargo(uno) : 'Cambia según la serie (abajo, en cada una): excéntrica-pausa-concéntrica en segundos.'}</div>
+          </div>
+        );
+      })()}
       {e.nota && (
         <div style={{ background: '#FFF2C2', color: '#4A3600', borderRadius: 12, padding: '10px 14px' }}>
           <div className="xs" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>Nota del PF</div>
@@ -214,6 +225,9 @@ function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado 
                 </>
               )}
             </div>
+            {e.detalle?.[i]?.tempo && new Set((e.detalle ?? []).map((d) => d.tempo ?? '')).size > 1 && (
+              <div className="xs" style={{ padding: '0 14px 6px 78px', color: '#1E3A8A', fontWeight: 600 }}>Tempo {e.detalle[i].tempo}</div>
+            )}
             {e.descanso_seg != null && i < filas.length - 1 && (
               <div className="xs" style={{ padding: '5px 14px', background: '#EEF3FF', color: '#1E3A8A', fontWeight: 600 }}>Descanso {tiempoTexto(e.descanso_seg)}</div>
             )}

@@ -69,7 +69,7 @@ export function normalizar(t: string): string {
 // ---------- Sesiones (armado de la semana) ----------
 
 export type Destino = { tipo: 'equipo'; ref?: null } | { tipo: 'grupo'; ref: string } | { tipo: 'persona'; ref: string };
-export type Serie = { reps: string; kg: number | null };
+export type Serie = { reps: string; kg: number | null; tempo?: string };   // tempo opcional «5-1-1»: excéntrica-pausa-concéntrica (X = explosivo)
 export type Item = {
   id: string;
   tipo: 'ejercicio' | 'break' | 'nota' | 'pregunta';   // break = session break (título); nota = recordatorio; pregunta = cuestionario
@@ -89,6 +89,11 @@ export type Item = {
 };
 // Ejercicio: unidad reps o segundos. Cuestionario: formato y opciones.
 export type Config = { unidad?: 'reps' | 'seg'; formato?: 'escala' | 'opciones' | 'texto'; opciones?: string[]; min?: number; max?: number; programa?: string; hueco?: string; progresa?: boolean };
+// Tempo: «5-1-1» = excéntrica 5 s, pausa 1 s, concéntrica 1 s (X = explosivo).
+export const RE_TEMPO = /^(X|\d{1,2})-(X|\d{1,2})-(X|\d{1,2})$/;
+const seg = (v: string) => (v === 'X' ? 'explosiva' : `${v} s`);
+export const tempoLargo = (t: string) => { const m = RE_TEMPO.exec(t); return m ? `Excéntrica ${seg(m[1])} · Pausa ${seg(m[2])} · Concéntrica ${seg(m[3])}` : t; };
+export const temposDe = (it: Pick<Item, 'detalle'>) => it.detalle.map((s) => s.tempo ?? '').filter(Boolean);
 export type Sesion = { id: string; fecha: string; destinos: Destino[]; items: Item[] };
 
 // ¿Los ejercicios de este bloque progresan en «Proponer semana siguiente»?
@@ -146,6 +151,8 @@ export function esquema(it: Item): string {
     const kgs = it.detalle.map((s) => kgTexto(s.kg));
     t += ` · ${new Set(kgs).size === 1 ? `${kgs[0]} kg` : kgs.join('-')}`;
   }
+  const tempos = it.detalle.map((s) => s.tempo ?? '');
+  if (tempos.some(Boolean)) t += ` · tempo ${new Set(tempos).size === 1 ? tempos[0] : tempos.map((x) => x || '—').join(' / ')}`;
   return t;
 }
 

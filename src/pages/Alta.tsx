@@ -50,9 +50,12 @@ export default function Alta() {
     try {
       if (!sesion) {
         const { data, error } = await supabase.auth.signUp({ email: email.trim(), password: clave, options: { data: { nombre }, emailRedirectTo: `${window.location.origin}/alta?codigo=${encodeURIComponent(codigo)}` } });   // al confirmar el email vuelve acá con el código cargado
-        if (error && /already|registered|exists/i.test(error.message)) {
+        // Con «Confirm email» activado, Supabase no da error si el email ya tiene cuenta: devuelve un usuario sin identidades.
+        const yaExiste = (!error && !!data.user && (data.user.identities?.length ?? 0) === 0) || (!!error && /already|registered|exists/i.test(error.message));
+        if (yaExiste) {
           // Ya tiene cuenta (por ejemplo, está en otra organización): entra con su clave y se suma a esta.
           const ent = await supabase.auth.signInWithPassword({ email: email.trim(), password: clave });
+          if (ent.error && /confirm/i.test(ent.error.message)) throw new Error('Falta confirmar tu email: abrí el mail que te mandamos y tocá el link. Después volvé a entrar acá.');
           if (ent.error) throw new Error('Ese email ya tiene cuenta. Poné la misma contraseña que usás para entrar y te sumamos a esta organización.');
         } else if (error) throw error;
         else if (!data.session) {
