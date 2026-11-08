@@ -12,6 +12,7 @@ import {
 } from '../../lib/planes';
 import EditorItem from './EditorItem';
 import { DialogoFicha, DialogoProgresion } from './Progresion';
+import { fechaLarga, pdfEntreno } from '../../lib/pdfEntreno';
 import Dialogo from '../../components/Dialogo';
 
 type Jugador = { id: string; nombre: string };
@@ -56,6 +57,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const [soltarEn, setSoltarEn] = useState<string | null>(null);
   const [conflictos, setConflictos] = useState<Conflicto[] | null>(null);
   const [cliente, setCliente] = useState<'progresion' | 'ficha' | null>(null);
+  const [pdfOcupado, setPdfOcupado] = useState(false);
   const [estado, setEstado] = useState<'ok' | 'guardando' | 'error'>('ok');
   const [error, setError] = useState('');
   const pendientes = useRef<Map<string, Item[] | null>>(new Map());
@@ -425,6 +427,15 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
             <button type="button" className="chip" aria-pressed={!compacto} onClick={() => compacto && moverPeriodo(lunesDe(dias.includes(diaActivo) ? desdeIso(diaActivo) : ancla), 'semana')}>Semana</button>
             <button type="button" className="chip" aria-pressed={compacto} onClick={() => !compacto && moverPeriodo(primeroDeMes(sumarDias(ancla, 3)), 'mes')}>Mes</button>
           </div>
+          <button type="button" className="btn btn-sm" disabled={pdfOcupado} title="PDF del día elegido, con links a los videos"
+            onClick={async () => {
+              setPdfOcupado(true);
+              try {
+                const r = await pdfEntreno({ club: perfil?.club.nombre ?? '', plan: nombrePlan(clave), fecha: diaActivo, items: efectivoDe(diaActivo).items, biblioteca });
+                if (r === 'descargado') setAviso(`PDF del ${fechaLarga(diaActivo)} descargado.`);
+              } catch { setAviso('No se pudo armar el PDF. Probá de nuevo.'); }
+              setPdfOcupado(false);
+            }}>{pdfOcupado ? 'Armando PDF…' : `⬇ PDF ${etiquetaDia(diaActivo)}`}</button>
           {esDueno && clave.startsWith('persona:') && (
             <div className="row" style={{ gap: 4 }}>
               {!compacto && <button type="button" className="btn btn-sm" title="Solo vos lo ves (en prueba)" onClick={async () => { await guardarPendientes(); setCliente('progresion'); }}>📈 Proponer semana siguiente</button>}

@@ -149,7 +149,7 @@ export function esquema(it: Item): string {
   let t = `${it.series} × ${reps}${seg ? ' s' : ''}${it.cada_lado ? ' c/lado' : ''}`;
   if (it.detalle.some((s) => s.kg != null)) {
     const kgs = it.detalle.map((s) => kgTexto(s.kg));
-    t += ` · ${new Set(kgs).size === 1 ? `${kgs[0]} kg` : kgs.join('-')}`;
+    t += ` · ${new Set(kgs).size === 1 ? kgs[0] : kgs.join('-')} kg`;
   }
   const tempos = it.detalle.map((s) => s.tempo ?? '');
   if (tempos.some(Boolean)) t += ` · tempo ${new Set(tempos).size === 1 ? tempos[0] : tempos.map((x) => x || '—').join(' / ')}`;
