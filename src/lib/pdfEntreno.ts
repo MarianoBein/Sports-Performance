@@ -107,7 +107,7 @@ export async function pdfEntreno(o: { club: string; plan: string; fecha: string;
     doc.text(`${p} / ${total}`, AN - MX, AL - 10, { align: 'right' });
   }
 
-  const nombre = `Entreno ${o.fecha} ${o.plan}.pdf`.replace(/[\\/:*?"<>|]/g, '-');
+  const nombre = `Entreno ${o.fecha} ${o.plan}.pdf`.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[\\/:*?"<>|]/g, '-');   // sin tildes: algunos navegadores cambian el nombre por «download»
   const archivo = new File([doc.output('blob')], nombre, { type: 'application/pdf' });
   // En el celular: menú de compartir (WhatsApp, mail…). En la compu: se descarga.
   const tactil = window.matchMedia?.('(pointer: coarse)').matches;

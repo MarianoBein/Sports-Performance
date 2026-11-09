@@ -13,6 +13,7 @@ import {
 import EditorItem from './EditorItem';
 import { DialogoFicha, DialogoProgresion } from './Progresion';
 import { fechaLarga, pdfEntreno } from '../../lib/pdfEntreno';
+import { excelSemana } from '../../lib/excelSemana';
 import Dialogo from '../../components/Dialogo';
 
 type Jugador = { id: string; nombre: string };
@@ -427,6 +428,16 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
             <button type="button" className="chip" aria-pressed={!compacto} onClick={() => compacto && moverPeriodo(lunesDe(dias.includes(diaActivo) ? desdeIso(diaActivo) : ancla), 'semana')}>Semana</button>
             <button type="button" className="chip" aria-pressed={compacto} onClick={() => !compacto && moverPeriodo(primeroDeMes(sumarDias(ancla, 3)), 'mes')}>Mes</button>
           </div>
+          <button type="button" className="btn btn-sm" disabled={pdfOcupado} title="Excel de toda la semana del día elegido, con el diseño del planning y links a los videos"
+            onClick={async () => {
+              setPdfOcupado(true);
+              try {
+                const r = await excelSemana({ club: perfil?.club.nombre ?? '', plan: clave === 'equipo' ? (perfil?.club.nombre ?? 'Equipo') : nombrePlan(clave), dia: diaActivo,
+                  logoUrl: perfil?.club.logo_club_url, itemsDe: (f) => efectivoDe(f).items, biblioteca });
+                if (r === 'descargado') setAviso('Excel de la semana descargado.');
+              } catch { setAviso('No se pudo armar el Excel. Probá de nuevo.'); }
+              setPdfOcupado(false);
+            }}>⬇ Excel semana</button>
           <button type="button" className="btn btn-sm" disabled={pdfOcupado} title="PDF del día elegido, con links a los videos"
             onClick={async () => {
               setPdfOcupado(true);

@@ -99,7 +99,7 @@ export type Sesion = { id: string; fecha: string; destinos: Destino[]; items: It
 // ¿Los ejercicios de este bloque progresan en «Proponer semana siguiente»?
 // Por defecto no progresa la entrada en calor (activación, movilidad, estabilidad), en español o en inglés.
 // El PF lo puede cambiar con la casilla «Progresa» del bloque.
-const RE_SIN_PROGRESION = /activaci|activation|movilidad|mobility|warm|calentamiento|entrada en calor|estabilidad|stability|prehab/i;
+const RE_SIN_PROGRESION = /activaci|activation|movilidad|mobility|warm|calentamiento|entrada en calor|estabilidad|stability|prehab|preparaci|^prep\b|^mov\b|^cal\b/i;
 export const progresaPorDefecto = (nombre: string) => !RE_SIN_PROGRESION.test(nombre);
 export const progresaBloque = (brk: Pick<Item, 'nombre' | 'config'> | null | undefined) =>
   !brk ? true : (brk.config?.progresa ?? progresaPorDefecto(brk.nombre));
