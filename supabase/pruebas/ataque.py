@@ -267,5 +267,13 @@ if r:
     debe_andar('anon', 'ver código escrito en minúscula y con espacios', 'select valido from ver_codigo(%s)', (r[0].lower().replace('-', ' '),), esperado=True)
 debe_andar('anon', 'salud del servidor (código inventado)', "select valido from ver_codigo('SALUD-0000')", esperado=False)
 
+# ---------- 10. Ficha (lesiones) solo con acceso al Sports Science Hub (026) ----------
+print('\n== 10. Fichas con datos de salud')
+k0.execute("""update perfiles set permisos_ajustados = '{"workout_builder": {"nivel": "editar", "exporta": false}, "sports_science": {"nivel": "sin", "exporta": false}}'::jsonb where id = %s""", (PERF['utileroA'],)); c0.commit()
+debe_vacio('utileroA', 'Workout Builder sin Hub: leer lesiones', 'select lesiones from fichas_cliente')
+debe_fallar('utileroA', 'Workout Builder sin Hub: cambiar una ficha', "select guardar_ficha(%s, '{}'::jsonb)", (PERF['jugA'],))
+debe_andar('pfA', 'el PF (con Hub) ve la ficha', 'select count(*) from fichas_cliente', esperado=1)
+k0.execute("update perfiles set permisos_ajustados = null where id = %s", (PERF['utileroA'],)); c0.commit()
+
 print('\n== RESUMEN:', len(problemas), 'problemas')
 for p in problemas: print(' -', p)
