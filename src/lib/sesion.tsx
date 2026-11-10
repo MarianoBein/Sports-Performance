@@ -7,7 +7,7 @@ export type Rol = { id: string; clave: string; nombre: string; es_jugador: boole
 export type Club = { id: string; nombre: string; sede_local: string | null; temporada: string | null; logo_club_url?: string | null; logo_liga_url?: string | null; wellness_modo?: string; rpe_modo?: string; rpe_retraso_min?: number; hora_aviso_wellness?: string; fuentes?: { gps?: boolean; fuerza?: boolean }; rpe_ejercicio?: boolean };
 export type Perfil = {
   id: string; club_id: string; nombre: string; email: string; rol_id: string;
-  es_admin: boolean; permisos_ajustados: Partial<Permisos> | null; eliminado_en: string | null; debe_cambiar_clave?: boolean;
+  es_admin: boolean; permisos_ajustados: Partial<Permisos> | null; eliminado_en: string | null; debe_cambiar_clave?: boolean; consentimiento_en?: string | null;
   rol: Rol; club: Club;
 };
 
@@ -48,7 +48,7 @@ export function SesionProvider({ children }: { children: ReactNode }) {
     // Sin «*»: el email de las personas solo lo ven los administradores (024). El propio sale de la cuenta.
     const { data, error } = await supabase
       .from('perfiles')
-      .select('id,club_id,nombre,rol_id,es_admin,permisos_ajustados,eliminado_en,debe_cambiar_clave,rol:roles(*),club:clubs(*)')
+      .select('id,club_id,nombre,rol_id,es_admin,permisos_ajustados,eliminado_en,debe_cambiar_clave,consentimiento_en,rol:roles(*),club:clubs(*)')
       .eq('id', miPerfil)
       .is('eliminado_en', null)
       .maybeSingle();

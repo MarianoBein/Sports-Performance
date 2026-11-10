@@ -60,7 +60,15 @@ for club, adm, jug in [(clubA, 'adminA', 'jugA'), (clubB, 'adminB', 'jugB')]:
     q("select guardar_suscripcion(%s, 'k', 'a')", (f'https://push.example/{s}',), uid=U[jug])
     grupo = q("select crear_grupo(%s)", (f'Grupo {s}',), uid=U[adm])
     q("select guardar_minutos(%s::date, 90, null)", (hoy,), uid=U[adm])
-    datos[club] = dict(act=act, prensa=prensa, item=item, prog=prog, tok=tok, grupo=grupo, hoy=hoy)
+    regla = q("select guardar_alerta(null, 'Alerta secreta', true, 'todas', 1, %s::jsonb)", (json.dumps([{'metrica': 'sueno', 'comparador': 'mayor_igual', 'referencia': 'valor', 'valor': 1}]),), uid=U[adm])
+    datos[club] = dict(regla=regla, act=act, prensa=prensa, item=item, prog=prog, tok=tok, grupo=grupo, hoy=hoy)
+
+# El PF y el utilero de A activan los avisos; las alertas se revisan como lo haría el servidor
+q("select guardar_suscripcion('https://push.example/pfA', 'k', 'a')", uid=U['pfA'])
+q("select guardar_suscripcion('https://push.example/utileroA', 'k', 'a')", uid=U['utileroA'])
+pushes = q("select endpoint from tomar_alertas()", one=False)
+assert sorted(x[0] for x in pushes) == ['https://push.example/pfA'], pushes   # solo el staff deportivo
+assert not q("select count(*) from tomar_alertas()"), 'se repite'
 
 json.dump(dict(U=U, clubA=clubA, clubB=clubB, datos=datos, perf={k: P(k) for k in U if k not in ('owner', 'nadie')}), open(sys.argv[2] if len(sys.argv) > 2 else 'fixtures.json', 'w'), indent=1)
 print('ok', clubA, clubB)

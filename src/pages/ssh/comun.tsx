@@ -64,18 +64,19 @@ export function periodoInicial(partidos: string[] = []): Periodo {
   return partidos.length ? { modo: 'partidos', ...e } : { modo: 'semana', ...semanaDe(hoyIso()) };
 }
 
+// Todos o un grupo. Para mirar jugadores puntuales está el comparador.
 export function FiltroGrupo({ datos, valor, onCambio }: { datos: Datos; valor: string; onCambio: (v: string) => void }) {
+  if (!datos.grupos.length) return null;
   return (
-    <label><span className="sr-only">Jugadores</span>
+    <label><span className="sr-only">Grupo</span>
       <select className="select" style={{ height: 36, width: 220 }} value={valor} onChange={(e) => onCambio(e.target.value)}>
         <option value="">Todos los jugadores</option>
-        {datos.grupos.length > 0 && <optgroup label="Grupos">{datos.grupos.map((g) => <option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}</optgroup>}
-        <optgroup label="Jugadores">{datos.jugadores.map((j) => <option key={j.id} value={`p:${j.id}`}>{j.nombre}</option>)}</optgroup>
+        {datos.grupos.map((g) => <option key={g.id} value={`g:${g.id}`}>{g.nombre}</option>)}
       </select>
     </label>
   );
 }
-export const filtrar = (datos: Datos, f: string) => datos.jugadores.filter((j) => !f || (f.startsWith('g:') ? j.grupos.includes(f.slice(2)) : j.id === f.slice(2)));
+export const filtrar = (datos: Datos, f: string) => datos.jugadores.filter((j) => !f.startsWith('g:') || j.grupos.includes(f.slice(2)));
 
 // Una celda coloreada por el semáforo, con la referencia en el texto de ayuda.
 export function Valor({ v, tono, ref, d = 1, chico, mostrarRef, minimo = 8 }: { v: number | null; tono: Tono | null; ref?: Ref; d?: number; chico?: boolean; mostrarRef?: boolean; minimo?: number }) {

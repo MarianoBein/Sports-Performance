@@ -1,4 +1,5 @@
 import TarjetaAvisos from '../components/Avisos';
+import { recibeAvisos } from '../lib/avisos';
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSesion } from '../lib/sesion';
@@ -77,7 +78,7 @@ export default function Inicio() {
       <div className="inicio-grid">
       <div className="stack" style={{ gap: 14, minWidth: 0 }}>
 
-      {perfil.rol.es_jugador && <TarjetaAvisos compacta />}
+      {recibeAvisos(perfil.rol) && <TarjetaAvisos compacta staff={!perfil.rol.es_jugador} />}
 
       {estado?.wellness_hecho && (
         <Link to="/wellness" className="card" style={{ padding: 16, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 14, boxShadow: 'inset 4px 0 0 #1E9E4A, 0 1px 2px rgba(22,24,29,.06)' }}>

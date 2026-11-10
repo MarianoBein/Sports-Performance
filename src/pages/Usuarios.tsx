@@ -63,6 +63,7 @@ export default function Usuarios() {
   const [editando, setEditando] = useState<Persona | null>(null);
   const [eliminando, setEliminando] = useState<Persona | null>(null);
   const [codigoAbierto, setCodigoAbierto] = useState(false);
+  const [sumarAbierto, setSumarAbierto] = useState(false);
   const [grupoAbierto, setGrupoAbierto] = useState(false);
   const [rolAbierto, setRolAbierto] = useState(false);
 
@@ -120,6 +121,7 @@ export default function Usuarios() {
             URL.revokeObjectURL(a.href);
             cargar();
           }}>Exportar datos del club</button>
+          <button type="button" className="btn" onClick={() => setSumarAbierto(true)}>+ Sumar persona</button>
           <button type="button" className="btn btn-primary" onClick={() => setCodigoAbierto(true)}>+ Código de alta</button>
         </div>
       </div>
@@ -277,6 +279,7 @@ export default function Usuarios() {
           <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: '#3F444D' }}>Pierde el acceso y desaparece de la lista. Sus cargas, wellness y tests se guardan para que no cambien las medias del equipo ni los informes de la temporada.</p>
         </Dialogo>
       )}
+      {sumarAbierto && <SumarPersona roles={roles} grupos={grupos} onCerrar={() => setSumarAbierto(false)} onSumada={cargar} />}
       {codigoAbierto && <CodigoAlta roles={roles} grupos={grupos} onCerrar={() => { setCodigoAbierto(false); cargar(); }} />}
       {grupoAbierto && <NuevoGrupo existentes={grupos.map((g) => g.nombre)} onCerrar={() => setGrupoAbierto(false)} onCreado={async () => { setGrupoAbierto(false); await cargar(); }} />}
       {rolAbierto && <NuevoRol onCerrar={() => setRolAbierto(false)} onCreado={async () => { setRolAbierto(false); await cargar(); }} />}
@@ -418,6 +421,100 @@ function CodigoAlta({ roles, grupos, onCerrar }: { roles: Rol[]; grupos: Grupo[]
       ) : (
         <button type="button" className="btn btn-primary" style={{ alignSelf: 'flex-end' }} onClick={generar} disabled={!rolId}>Generar código</button>
       )}
+      {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+    </Dialogo>
+  );
+}
+
+// «Sumar persona»: el admin crea la cuenta con una contraseña temporal y se la manda.
+// Al entrar por primera vez, la app le pide elegir su contraseña.
+const LETRAS = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function claveTemporal() {
+  const b = crypto.getRandomValues(new Uint8Array(10));
+  const c = [...b].map((x) => LETRAS[x % LETRAS.length]).join('');
+  return `${c.slice(0, 5)}-${c.slice(5)}`;
+}
+
+function SumarPersona({ roles, grupos, onCerrar, onSumada }: { roles: Rol[]; grupos: Grupo[]; onCerrar: () => void; onSumada: () => void }) {
+  const jugador = roles.find((r) => r.es_jugador);
+  const [nombre, setNombre] = useState('');
+  const [email, setEmail] = useState('');
+  const [rolId, setRolId] = useState(jugador?.id ?? roles[0]?.id ?? '');
+  const [grupoId, setGrupoId] = useState(grupos[0]?.id ?? '');
+  const [clave, setClave] = useState(claveTemporal);
+  const [error, setError] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const [lista, setLista] = useState<{ nombre: string; email: string; clave: string } | null>(null);
+  const [copiado, setCopiado] = useState(false);
+  const rol = roles.find((r) => r.id === rolId);
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  async function sumar() {
+    setError('');
+    if (!nombre.trim()) { setError('Falta el nombre.'); return; }
+    if (!emailOk) { setError('El email no es válido.'); return; }
+    if (clave.length < 8) { setError('La contraseña temporal tiene que tener al menos 8 caracteres.'); return; }
+    setEnviando(true);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const r = await fetch('/api/sumar-persona', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` },
+        body: JSON.stringify({ nombre: nombre.trim(), email: email.trim(), clave, rol: rolId, grupo: rol?.es_jugador ? grupoId || null : null }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) { setError(j.error || 'No se pudo sumar a la persona.'); return; }
+      setLista({ nombre: nombre.trim(), email: email.trim().toLowerCase(), clave });
+      onSumada();
+    } catch {
+      setError('No hay conexión. Probá de nuevo.');
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  if (lista) {
+    const mensaje = `Hola ${lista.nombre.split(' ')[0]}, ya tenés tu cuenta en la app del club.\nEntrá en ${window.location.origin}/entrar con tu email (${lista.email}) y esta contraseña temporal: ${lista.clave}\nAl entrar te va a pedir que elijas una nueva.`;
+    return (
+      <Dialogo titulo={`${lista.nombre} ya está en el club`} ancho={540} onCerrar={onCerrar}
+        pie={<button type="button" className="btn btn-primary" onClick={onCerrar}>Listo</button>}>
+        <span className="small">Mandale este mensaje. Al entrar por primera vez, la app le pide elegir su contraseña{rol?.es_jugador ? ' y aceptar el uso de sus datos de salud' : ''}.</span>
+        <pre id="sumar-mensaje" style={{ whiteSpace: 'pre-wrap', margin: 0, padding: 12, borderRadius: 10, background: 'var(--bg)', fontFamily: 'inherit', fontSize: 14, lineHeight: 1.5 }}>{mensaje}</pre>
+        <div className="row" style={{ gap: 8 }}>
+          <button type="button" className="btn" onClick={async () => { try { await navigator.clipboard.writeText(mensaje); setCopiado(true); } catch { setCopiado(false); } }}>{copiado ? 'Copiado ✓' : 'Copiar mensaje'}</button>
+          <a className="btn btn-primary" href={`https://wa.me/?text=${encodeURIComponent(mensaje)}`} target="_blank" rel="noopener noreferrer">Mandar por WhatsApp</a>
+        </div>
+      </Dialogo>
+    );
+  }
+
+  return (
+    <Dialogo titulo="Sumar persona" ancho={560} onCerrar={onCerrar}
+      pie={<><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button id="sumar-crear" type="button" className="btn btn-primary" disabled={enviando || !rolId} onClick={sumar}>{enviando ? 'Creando…' : 'Crear cuenta'}</button></>}>
+      <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: '#3F444D' }}>Creás la cuenta vos, con una contraseña temporal. Sirve para quien no se anima a registrarse solo. Si ya tiene cuenta (por ejemplo, en otra organización), usá un código de alta.</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        <label className="field"><span>Nombre y apellido</span><input id="sumar-nombre" className="input" autoFocus value={nombre} maxLength={120} onChange={(e) => setNombre(e.target.value)} /></label>
+        <label className="field"><span>Email</span><input id="sumar-email" className="input" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+        <label className="field"><span>Rol</span>
+          <select id="sumar-rol" className="select" value={rolId} onChange={(e) => setRolId(e.target.value)}>
+            {roles.map((r) => <option key={r.id} value={r.id}>{r.nombre}</option>)}
+          </select>
+        </label>
+        {rol?.es_jugador && (
+          <label className="field"><span>Grupo</span>
+            <select id="sumar-grupo" className="select" value={grupoId} onChange={(e) => setGrupoId(e.target.value)}>
+              <option value="">Sin grupo</option>
+              {grupos.map((g) => <option key={g.id} value={g.id}>{g.nombre}</option>)}
+            </select>
+          </label>
+        )}
+        <label className="field"><span>Contraseña temporal</span>
+          <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+            <input id="sumar-clave" className="input" value={clave} maxLength={72} onChange={(e) => setClave(e.target.value)} style={{ fontFamily: 'ui-monospace, monospace' }} />
+            <button type="button" className="btn btn-sm" title="Otra contraseña" aria-label="Generar otra contraseña" onClick={() => setClave(claveTemporal())}>↻</button>
+          </div>
+        </label>
+      </div>
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
     </Dialogo>
   );

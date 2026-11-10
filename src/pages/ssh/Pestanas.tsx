@@ -14,6 +14,7 @@ function useFuentes() {
   return { gps: !!perfil?.club.fuentes?.gps, fuerza: !!perfil?.club.fuentes?.fuerza };
 }
 import Grafico from './Grafico';
+import Comparador from './Comparador';
 
 const WELLNESS: Metrica[] = ['preparacion', 'sueno', 'fatiga', 'estres', 'dolor'];
 const etiquetaDia = (f: string) => { const d = desdeIso(f); return `${DIAS_CORTOS[(d.getDay() + 6) % 7]} ${d.getDate()}`; };
@@ -41,6 +42,7 @@ export function PestanaWellness() {
   return (
     <div className="stack">
       <Cabecera periodo={periodo} setPeriodo={setPeriodo} datos={datos} filtro={filtro} setFiltro={setFiltro} />
+      {datos && <Comparador datos={datos} dias={dias} metricas={['preparacion', 'sueno', 'fatiga', 'estres', 'dolor']} etiquetas={dias.map((f) => etiquetaMD(f, datos.partidos))} />}
       <Leyenda extra={<span>Cada valor se compara con la media de los últimos {VENTANA_MOVIL} días del propio jugador. Sueño: 5 = bien; fatiga, estrés y dolor: 5 = mal.</span>} />
       {!datos ? <Cargando error={error} /> : filtrar(datos, filtro).map((j) => {
         const aplica = dias.filter((f) => datos.dia(j.id, f).wAplica);
@@ -90,6 +92,7 @@ export function PestanaSesion() {
   const { gps } = useFuentes();
   const md = datos ? etiquetaMD(fecha, datos.partidos) : null;
   const jugadores = datos ? filtrar(datos, filtro) : [];
+  const ultimos7 = useMemo(() => diasEntre(iso(sumarDias(desdeIso(fecha), -6)), fecha), [fecha]);
   const prom = (m: Metrica) => resumen(jugadores.map((j) => datos!.dia(j.id, fecha)[m]).filter((v): v is number => v != null));
 
   return (
@@ -117,6 +120,7 @@ export function PestanaSesion() {
               </div>
             ))}
           </div>
+          <Comparador datos={datos} dias={ultimos7} metricas={['preparacion', 'rpe', 'esfuerzo']} titulo="Comparar jugadores · últimos 7 días" etiquetas={ultimos7.map((f) => etiquetaMD(f, datos.partidos))} />
           <div className="card table-wrap" style={{ padding: 0 }}>
             <table className="tbl">
               <thead><tr><th style={{ paddingLeft: 14 }}>Jugador</th><th>Preparación</th>{gps && <><th>Volumen</th><th>Volumen/min</th><th>Intensidad</th><th>Intensidad/min</th></>}<th>Esfuerzo</th></tr></thead>
@@ -180,6 +184,7 @@ export function PestanaSemana() {
                   puntos={dias.map((f, i) => ({ fecha: f, valor: prep[i].media, nota: `${prep[i].n} jugadores con dato` }))} />
               </div>
             </div>
+            <Comparador datos={datos} dias={dias} metricas={['esfuerzo', 'preparacion', 'rpe']} etiquetas={mds} />
             <div className="card table-wrap" style={{ padding: 0 }}>
               <table className="tbl">
                 <thead><tr>

@@ -54,6 +54,19 @@ export default async function handler(req, res) {
         else fallidos++;
       }
     }
+    // Alertas del Sports Science Hub para el staff deportivo (si el 027 todavía no está, se saltea).
+    let alertas = [];
+    try { alertas = (await rpc('tomar_alertas')) || []; } catch { alertas = []; }
+    for (const a of alertas) {
+      try {
+        await webpush.sendNotification({ endpoint: a.endpoint, keys: { p256dh: a.p256dh, auth: a.auth } },
+          JSON.stringify({ titulo: a.titulo, cuerpo: a.cuerpo, url: a.url, tag: a.tag, fecha: a.fecha }), { TTL: 6 * 3600, urgency: 'high' });
+        enviados++;
+      } catch (e) {
+        if (e && (e.statusCode === 404 || e.statusCode === 410)) { await rpc('quitar_suscripcion', { p_endpoint: a.endpoint }); quitados++; }
+        else fallidos++;
+      }
+    }
     res.status(200).json({ enviados, quitados, fallidos });
   } catch (e) {
     res.status(500).json({ error: String(e.message || e) });

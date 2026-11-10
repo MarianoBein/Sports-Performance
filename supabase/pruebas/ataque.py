@@ -275,5 +275,36 @@ debe_fallar('utileroA', 'Workout Builder sin Hub: cambiar una ficha', "select gu
 debe_andar('pfA', 'el PF (con Hub) ve la ficha', 'select count(*) from fichas_cliente', esperado=1)
 k0.execute("update perfiles set permisos_ajustados = null where id = %s", (PERF['utileroA'],)); c0.commit()
 
+# ---------- 11. Alertas y «Sumar persona» (027) ----------
+print('\n== 11. Alertas del Hub y alta directa')
+debe_vacio('jugA', 'reglas de alertas', 'select nombre from alertas_reglas')
+debe_vacio('jugA', 'alertas disparadas', 'select detalle from alertas_disparadas')
+debe_vacio('utileroA', 'alertas disparadas (sin Hub)', 'select detalle from alertas_disparadas')
+debe_andar('pfA', 'el PF ve la alerta disparada', 'select count(*) from alertas_disparadas', esperado=1)
+COND = json.dumps([{'metrica': 'sueno', 'comparador': 'menor', 'referencia': 'media', 'valor': -1}])
+RARA = json.dumps([{'metrica': 'email', 'comparador': 'menor', 'referencia': 'valor', 'valor': 1}])
+debe_fallar('jugA', 'crear una alerta', "select guardar_alerta(null, 'x', true, 'todas', 1, %s::jsonb)", (COND,))
+debe_fallar('utileroA', 'crear una alerta (sin Hub)', "select guardar_alerta(null, 'x', true, 'todas', 1, %s::jsonb)", (COND,))
+debe_fallar('adminB', 'cambiar una alerta de A', "select guardar_alerta(%s, 'x', false, 'todas', 1, %s::jsonb)", (DA['regla'], COND))
+debe_fallar('adminB', 'borrar una alerta de A', 'select eliminar_alerta(%s)', (DA['regla'],))
+debe_fallar('adminA', 'condición con campos raros', "select guardar_alerta(null, 'x', true, 'todas', 1, %s::jsonb)", (RARA,))
+for quien in ['anon', 'jugA', 'adminA']:
+    debe_fallar(quien, 'tomar_alertas (solo el servidor)', 'select * from tomar_alertas()')
+debe_andar('pfA', 'el PF crea una alerta', "select guardar_alerta(null, 'Duerme mal', true, 'alguna', 2, %s::jsonb) is not null", (COND,), esperado=True)
+# Alta directa: una cuenta recién creada, sin perfiles
+NUEVA = str(uuid.uuid4())
+k0.execute("insert into auth.users (id, email, raw_app_meta_data) values (%s, 'nueva@test.local', jsonb_build_object('sumado_en_club', %s::text))", (NUEVA, A)); c0.commit()
+k0.execute("select id from roles where club_id = %s and clave = 'jugador'", (A,)); ROL_JUG_A = k0.fetchone()[0]
+for quien in ['anon', 'jugA', 'pfA']:
+    debe_fallar(quien, 'sumar persona (no admin)', "select sumar_persona(%s, 'nueva@test.local', 'X', %s)", (NUEVA, ROL_JUG_A))
+debe_fallar('adminB', 'sumar persona con rol de otro club', "select sumar_persona(%s, 'nueva@test.local', 'X', %s)", (NUEVA, ROL_JUG_A))
+debe_fallar('adminA', 'adoptar la cuenta de un jugador existente', "select sumar_persona(%s, 'jugB@test.local', 'X', %s)", (U['jugB'], ROL_JUG_A))
+debe_fallar('adminA', 'adoptar una cuenta sin club (nadie)', "select sumar_persona(%s, 'nadie@test.local', 'X', %s)", (U['nadie'], ROL_JUG_A))
+debe_fallar('adminA', 'sumar con email que no coincide', "select sumar_persona(%s, 'otro@test.local', 'X', %s)", (NUEVA, ROL_JUG_A))
+debe_andar('adminA', 'suma a una persona nueva', "select sumar_persona(%s, 'nueva@test.local', 'Nueva', %s, %s) = %s::uuid", (NUEVA, ROL_JUG_A, DA['grupo'], NUEVA), esperado=True)
+k0.execute("update auth.users set created_at = now() - interval '1 hour' where id = %s", (NUEVA,)); c0.commit()
+debe_fallar('adminA', 'sumar una cuenta vieja', "select sumar_persona(%s, 'nueva@test.local', 'X', %s)", (NUEVA, ROL_JUG_A))
+debe_andar('jugA', 'acepta el consentimiento', 'select aceptar_consentimiento() is null', esperado=True)
+
 print('\n== RESUMEN:', len(problemas), 'problemas')
 for p in problemas: print(' -', p)

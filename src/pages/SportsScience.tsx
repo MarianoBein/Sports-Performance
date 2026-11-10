@@ -5,6 +5,8 @@ import { fechaLarga, hoyIso, iso, desdeIso, sumarDias } from '../lib/calendario'
 import { PestanaPerfil, PestanaSemana, PestanaSesion, PestanaWellness } from './ssh/Pestanas';
 import { COLORES_5, PREGUNTAS, RPE, TEXTO_5, bienDe, colorRpe, type Pregunta } from '../lib/wellness';
 import Dialogo from '../components/Dialogo';
+import { useSearchParams } from 'react-router-dom';
+import PestanaAlertas, { useAlertasRecientes } from './ssh/Alertas';
 
 type Fila = {
   perfil_id: string; nombre: string; sueno: number | null; fatiga: number | null; estres: number | null; dolor: number | null;
@@ -42,8 +44,12 @@ export default function SportsScience() {
 }
 
 function VistaStaff({ edita }: { edita: boolean }) {
-  const [tab, setTab] = useState<'dia' | 'wellness' | 'sesion' | 'semana' | 'perfil'>('dia');
-  const tabs = [['dia', 'Día'], ['wellness', 'Wellness'], ['sesion', 'Sesión'], ['semana', 'Semana'], ['perfil', 'Perfil']] as const;
+  type Tab = 'dia' | 'wellness' | 'sesion' | 'semana' | 'perfil' | 'alertas';
+  const tabs = [['dia', 'Día'], ['wellness', 'Wellness'], ['sesion', 'Sesión'], ['semana', 'Semana'], ['perfil', 'Perfil'], ['alertas', 'Alertas']] as const;
+  const [params, setParams] = useSearchParams();
+  const pedida = params.get('pestana') as Tab | null;   // el aviso del celular abre «Alertas»
+  const [tab, setTab0] = useState<Tab>(pedida && tabs.some(([k]) => k === pedida) ? pedida : 'dia');
+  const setTab = (t: Tab) => { setTab0(t); if (params.has('pestana')) setParams({}, { replace: true }); };
   return (
     <div className="stack">
       <h1 className="display" style={{ fontSize: 38 }}>Sports Science Hub</h1>
@@ -55,6 +61,7 @@ function VistaStaff({ edita }: { edita: boolean }) {
       {tab === 'sesion' && <PestanaSesion />}
       {tab === 'semana' && <PestanaSemana />}
       {tab === 'perfil' && <PestanaPerfil />}
+      {tab === 'alertas' && <PestanaAlertas edita={edita} />}
     </div>
   );
 }
@@ -66,6 +73,8 @@ function VistaDia({ edita }: { edita: boolean }) {
   const [equipo, setEquipo] = useState<Record<Cuest, boolean | null>>({ wellness: null, rpe: null });
   const [error, setError] = useState('');
   const [corrigiendo, setCorrigiendo] = useState<Fila | null>(null);
+  const { lista: alertas } = useAlertasRecientes(14);
+  const alertasDe = (perfil: string) => alertas.filter((a) => a.perfil_id === perfil && a.fecha === fecha);
 
   const cargar = useCallback(async () => {
     const [r, m, ex] = await Promise.all([
@@ -176,7 +185,13 @@ function VistaDia({ edita }: { edita: boolean }) {
           <tbody>
             {filas.map((f) => (
               <tr key={f.perfil_id}>
-                <th scope="row" style={{ fontWeight: 600 }}>{f.nombre}</th>
+                <th scope="row" style={{ fontWeight: 600 }}>
+                  {f.nombre}
+                  {alertasDe(f.perfil_id).length > 0 && (
+                    <span className="alerta-marca" title={alertasDe(f.perfil_id).map((a) => a.detalle).join('\n')}
+                      style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 6, background: '#FDF1E3', color: '#8A4B00', fontSize: 12 }}>⚠ {alertasDe(f.perfil_id).length}</span>
+                  )}
+                </th>
                 {!f.wellness_aplica && f.sueno === null
                   ? <td colSpan={4}><NA /></td>
                   : <>

@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { activarAvisos, desactivarAvisos, estadoAvisos, type EstadoAvisos } from '../lib/avisos';
 import { mensajeError } from '../lib/supabase';
 
-// Tarjeta para que el jugador active los avisos de wellness y RPE en su celular.
-export default function TarjetaAvisos({ compacta = false }: { compacta?: boolean }) {
+// Tarjeta para activar los avisos en el celular: al jugador, wellness y RPE; al staff deportivo, las alertas del Hub.
+export default function TarjetaAvisos({ compacta = false, staff = false }: { compacta?: boolean; staff?: boolean }) {
   const [estado, setEstado] = useState<EstadoAvisos | null>(null);
   const [error, setError] = useState('');
   const [ocupado, setOcupado] = useState(false);
@@ -21,14 +21,14 @@ export default function TarjetaAvisos({ compacta = false }: { compacta?: boolean
       <strong>Avisos en el celular</strong>
       {estado === 'activos' && (
         <>
-          <span className="small">Activados en este dispositivo: te avisamos cuando toca el wellness y el RPE.</span>
+          <span className="small">Activados en este dispositivo: {staff ? 'te avisamos cuando un jugador cumple una alerta del Sports Science Hub.' : 'te avisamos cuando toca el wellness y el RPE.'}</span>
           <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} disabled={ocupado}
             onClick={async () => { setOcupado(true); await desactivarAvisos().catch(() => {}); setEstado('apagados'); setOcupado(false); }}>Desactivar</button>
         </>
       )}
       {estado === 'apagados' && (
         <>
-          <span className="small">Activalos y te avisamos cuando toca contestar el wellness y el RPE.</span>
+          <span className="small">{staff ? 'Activalos y te avisamos al momento cuando un jugador cumple una alerta del Sports Science Hub (por ejemplo, duerme mal dos días seguidos).' : 'Activalos y te avisamos cuando toca contestar el wellness y el RPE.'}</span>
           <button type="button" className="btn btn-primary" disabled={ocupado} onClick={activar}>{ocupado ? 'Activando…' : 'Activar avisos'}</button>
         </>
       )}
@@ -38,7 +38,7 @@ export default function TarjetaAvisos({ compacta = false }: { compacta?: boolean
       {estado === 'bloqueados' && (
         <span className="small">Los avisos están bloqueados para esta app. Activalos desde la configuración del celular (Notificaciones) y volvé a entrar.</span>
       )}
-      {estado === 'sin-configurar' && <span className="small muted">Los avisos todavía no están configurados en el club. Avisale a tu preparador físico.</span>}
+      {estado === 'sin-configurar' && <span className="small muted">Los avisos todavía no están configurados en el club. {staff ? 'Avisale al administrador.' : 'Avisale a tu preparador físico.'}</span>}
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
     </div>
   );

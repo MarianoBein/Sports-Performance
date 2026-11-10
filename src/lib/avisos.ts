@@ -1,6 +1,10 @@
 // Avisos al celular (push): activar y desactivar en este dispositivo.
 import { supabase } from './supabase';
 
+// Staff deportivo: le llegan las alertas del Sports Science Hub.
+export const STAFF_DEPORTIVO = ['principal', 'ayudante', 'skills', 'pf', 'fisio'];
+export const recibeAvisos = (rol: { clave: string; es_jugador: boolean }) => rol.es_jugador || STAFF_DEPORTIVO.includes(rol.clave);
+
 export type EstadoAvisos = 'no-soportado' | 'instalar-primero' | 'sin-configurar' | 'bloqueados' | 'activos' | 'apagados';
 
 const b64 = (s: string) => {
