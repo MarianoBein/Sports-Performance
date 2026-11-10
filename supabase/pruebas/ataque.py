@@ -306,5 +306,15 @@ k0.execute("update auth.users set created_at = now() - interval '1 hour' where i
 debe_fallar('adminA', 'sumar una cuenta vieja', "select sumar_persona(%s, 'nueva@test.local', 'X', %s)", (NUEVA, ROL_JUG_A))
 debe_andar('jugA', 'acepta el consentimiento', 'select aceptar_consentimiento() is null', esperado=True)
 
+print('\n== 12. Eliminar una organización (solo el dueño)')
+for quien in ['anon', 'jugA', 'adminA', 'adminB']:
+    debe_fallar(quien, 'eliminar la organización A', "select plataforma_eliminar_organizacion(%s, 'Casademont Zaragoza')", (A,))
+debe_fallar('owner', 'eliminar con el nombre equivocado', "select plataforma_eliminar_organizacion(%s, 'Otra')", (A,))
+debe_andar('owner', 'elimina Fénix (se deshace al final)', "select 1 from (select plataforma_eliminar_organizacion(%s, 'Fénix Rugby')) x", (B,), esperado=1)
+ok, res, v = correr('owner', "select plataforma_eliminar_organizacion(%s, 'Fénix Rugby')", (B,), verif="select (select count(*) from clubs where id = '%s') + (select count(*) from perfiles where club_id = '%s') + (select count(*) from wellness where club_id = '%s')" % (B, B, B))
+if not (ok and v[0][0] == 0): problemas.append(f'[owner] eliminar no borró todo: {res} {v}')
+else: print('  ✓ owner     no queda nada de Fénix (club, personas, wellness)')
+k0.execute("select count(*) from clubs where id = %s", (B,)); assert k0.fetchone()[0] == 1   # se deshizo
+
 print('\n== RESUMEN:', len(problemas), 'problemas')
 for p in problemas: print(' -', p)

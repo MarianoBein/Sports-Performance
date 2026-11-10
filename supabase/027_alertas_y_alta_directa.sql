@@ -8,6 +8,7 @@
 --    y queda marcada en el Hub. Un dato que falta nunca cuenta: si no contestó, no hay alerta.
 -- 2) Sumar persona: el admin crea la cuenta (nombre, email, rol, contraseña temporal).
 --    La primera vez que entra, la app le pide elegir su contraseña.
+-- 3) Plataforma: el dueño puede eliminar una organización (con doble confirmación).
 -- =====================================================================
 
 -- ---------- 1. Alertas ----------
@@ -253,6 +254,25 @@ language sql security definer set search_path = public as $$
   update perfiles set consentimiento_en = coalesce(consentimiento_en, now()) where id = (select public.yo());
 $$;
 
+-- ---------- 3. Plataforma: eliminar una organización (solo el dueño) ----------
+-- Borra la organización y TODO lo suyo (personas, calendario, entrenos, wellness, RPE…). No se puede deshacer.
+-- Las cuentas siguen existiendo: si alguien está también en otra organización, sigue entrando a esa.
+-- Pide el nombre exacto como confirmación, para que un toque equivocado no borre otra.
+create or replace function public.plataforma_eliminar_organizacion(p_club uuid, p_nombre text) returns void
+language plpgsql security definer set search_path = public as $$
+declare c clubs;
+begin
+  if not soy_dueno() then raise exception 'Solo el dueño de la plataforma.'; end if;
+  select * into c from clubs where id = p_club for update;
+  if not found then raise exception 'Organización no encontrada.'; end if;
+  if c.nombre is distinct from p_nombre then raise exception 'El nombre no coincide.'; end if;
+  -- Quien tenía esta organización como activa pasa a otra suya (si tiene).
+  update perfil_activo pa set perfil_id = otro.id, cambiado_en = now()
+  from perfiles viejo, lateral (select o.id from perfiles o where o.user_id = viejo.user_id and o.club_id <> p_club and o.eliminado_en is null order by o.creado_en limit 1) otro
+  where pa.perfil_id = viejo.id and viejo.club_id = p_club;
+  delete from clubs where id = p_club;
+end $$;
+
 -- ---------- Permisos de las funciones ----------
 revoke all on function public._valor_metrica(uuid, date, text) from public, anon, authenticated;
 revoke all on function public._media_metrica(uuid, date, text) from public, anon, authenticated;
@@ -264,16 +284,18 @@ revoke all on function public.tomar_alertas() from public, anon, authenticated;
 revoke all on function public.puedo_sumar_persona(uuid, uuid) from public, anon;
 revoke all on function public.sumar_persona(uuid, text, text, uuid, uuid) from public, anon;
 revoke all on function public.aceptar_consentimiento() from public, anon;
+revoke all on function public.plataforma_eliminar_organizacion(uuid, text) from public, anon;
 grant execute on function public.guardar_alerta(uuid, text, boolean, text, integer, jsonb) to authenticated;
 grant execute on function public.eliminar_alerta(uuid) to authenticated;
 grant execute on function public.puedo_sumar_persona(uuid, uuid) to authenticated;
 grant execute on function public.sumar_persona(uuid, text, text, uuid, uuid) to authenticated;
 grant execute on function public.aceptar_consentimiento() to authenticated;
+grant execute on function public.plataforma_eliminar_organizacion(uuid, text) to authenticated;
 grant execute on function public.tomar_alertas() to service_role;
 
 -- Comprobación: tiene que mostrar 2 | 0 (dos tablas nuevas; ninguna función nueva abierta sin sesión).
 select
   (select count(*) from pg_tables where schemaname = 'public' and tablename in ('alertas_reglas', 'alertas_disparadas') and rowsecurity) as tablas_con_rls,
   (select count(*) from pg_proc where pronamespace = 'public'::regnamespace
-     and proname in ('guardar_alerta', 'eliminar_alerta', 'tomar_alertas', 'puedo_sumar_persona', 'sumar_persona', 'aceptar_consentimiento', '_valor_metrica', '_media_metrica', '_cumple', '_cumple_regla')
+     and proname in ('guardar_alerta', 'eliminar_alerta', 'tomar_alertas', 'puedo_sumar_persona', 'sumar_persona', 'aceptar_consentimiento', 'plataforma_eliminar_organizacion', '_valor_metrica', '_media_metrica', '_cumple', '_cumple_regla')
      and has_function_privilege('anon', oid, 'execute')) as abiertas_sin_sesion;

@@ -215,6 +215,23 @@ function EditarOrg({ org, onCerrar, onGuardada }: { org: Org; onCerrar: () => vo
   const [estado, setEstado] = useState(org.estado);
   const [notas, setNotas] = useState(org.notas_dueno ?? '');
   const [error, setError] = useState('');
+  const [confirmar, setConfirmar] = useState(false);
+  const [borrando, setBorrando] = useState(false);
+  async function eliminar() {
+    setBorrando(true); setError('');
+    const { error } = await supabase.rpc('plataforma_eliminar_organizacion', { p_club: org.id, p_nombre: org.nombre });
+    setBorrando(false);
+    if (error) { setError(mensajeError(error)); setConfirmar(false); return; }
+    onGuardada();
+  }
+  if (confirmar) return (
+    <Dialogo titulo="¿Estás seguro que querés eliminar esta organización?" onCerrar={() => setConfirmar(false)}
+      pie={<><button type="button" className="btn" onClick={() => setConfirmar(false)}>No, volver</button><button id="org-eliminar-si" type="button" className="btn btn-primary" disabled={borrando} onClick={eliminar}>{borrando ? 'Eliminando…' : `Sí, eliminar ${org.nombre}`}</button></>}>
+      <p style={{ margin: 0 }}>Se borra <strong>{org.nombre}</strong> con todo lo suyo: personas, calendario, entrenos, wellness, RPE y registros. <strong>No se puede deshacer.</strong></p>
+      <p className="small muted" style={{ margin: 0 }}>Si solo querés cortarle el acceso un tiempo, mejor ponela en «Suspendida»: así se conservan los datos.</p>
+      {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+    </Dialogo>
+  );
   async function guardar() {
     const { error } = await supabase.rpc('plataforma_actualizar_organizacion', { p_club: org.id, p_plan: plan, p_estado: estado, p_notas: notas || null });
     if (error) { setError(mensajeError(error)); return; }
@@ -222,7 +239,7 @@ function EditarOrg({ org, onCerrar, onGuardada }: { org: Org; onCerrar: () => vo
   }
   return (
     <Dialogo titulo={org.nombre} onCerrar={onCerrar}
-      pie={<><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="button" className="btn btn-primary" onClick={guardar}>Guardar</button></>}>
+      pie={<><button id="org-eliminar" type="button" className="btn btn-ghost" style={{ marginRight: 'auto', color: 'var(--accent, #B3122E)' }} onClick={() => setConfirmar(true)}>Eliminar organización</button><button type="button" className="btn" onClick={onCerrar}>Cancelar</button><button type="button" className="btn btn-primary" onClick={guardar}>Guardar</button></>}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
         <label className="field"><span>Plan</span>
           <select className="select" value={plan} onChange={(e) => setPlan(e.target.value)}>{Object.entries(PLANES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
