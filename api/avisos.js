@@ -55,8 +55,11 @@ export default async function handler(req, res) {
       }
     }
     // Alertas del Sports Science Hub para el staff deportivo (si el 027 todavía no está, se saltea).
+    // y partes de fisio (parte nuevo y recordatorio del rechequeo). Si el SQL todavía no está, se saltea.
     let alertas = [];
-    try { alertas = (await rpc('tomar_alertas')) || []; } catch { alertas = []; }
+    for (const f of ['tomar_alertas', 'tomar_partes']) {
+      try { alertas = alertas.concat((await rpc(f)) || []); } catch { /* sin esa función todavía */ }
+    }
     for (const a of alertas) {
       try {
         await webpush.sendNotification({ endpoint: a.endpoint, keys: { p256dh: a.p256dh, auth: a.auth } },

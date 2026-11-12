@@ -316,5 +316,29 @@ if not (ok and v[0][0] == 0): problemas.append(f'[owner] eliminar no borró todo
 else: print('  ✓ owner     no queda nada de Fénix (club, personas, wellness)')
 k0.execute("select count(*) from clubs where id = %s", (B,)); assert k0.fetchone()[0] == 1   # se deshizo
 
+print('\n== 13. Partes de fisio, asistencia y ficha (028)')
+debe_vacio('jugA', 'partes de fisio', 'select motivo from partes_fisio')
+debe_vacio('jugA', 'ausencias', 'select * from ausencias')
+debe_vacio('utileroA', 'partes de fisio (sin Hub)', 'select motivo from partes_fisio')
+debe_vacio('adminA', 'partes de otro club', 'select motivo from partes_fisio where club_id = %s', (B,))
+debe_vacio('adminA', 'ausencias de otro club', 'select * from ausencias where club_id = %s', (B,))
+debe_andar('pfA', 'el PF ve el parte', 'select count(*) from partes_fisio', esperado=1)
+for quien in ['jugA', 'utileroA']:
+    debe_fallar(quien, 'cargar un parte', "select guardar_parte(null, %s, current_date, 'x', 'si', 'si')", (PERF['jugA'],))
+    debe_fallar(quien, 'marcar asistencia', 'select marcar_asistencia(current_date, %s, false)', (PERF['jugA'],))
+    debe_fallar(quien, 'ver la ficha de un jugador', 'select ficha_jugador(%s, current_date - 30, current_date)', (PERF['jugA'],))
+debe_fallar('adminA', 'parte de un jugador de otro club', "select guardar_parte(null, %s, current_date, 'x', 'si', 'si')", (PERF['jugB'],))
+debe_fallar('adminA', 'parte de alguien que no es jugador', "select guardar_parte(null, %s, current_date, 'x', 'si', 'si')", (PERF['pfA'],))
+debe_fallar('adminA', 'asistencia de un jugador de otro club', 'select marcar_asistencia(current_date, %s, false)', (PERF['jugB'],))
+debe_fallar('adminA', 'ficha de un jugador de otro club', 'select ficha_jugador(%s, current_date - 30, current_date)', (PERF['jugB'],))
+k0.execute('select id from partes_fisio where club_id = %s', (A,)); PARTE_A = k0.fetchone()[0]
+debe_fallar('adminB', 'borrar un parte de A', 'select eliminar_parte(%s)', (PARTE_A,))
+debe_fallar('adminB', 'cambiar un parte de A', "select guardar_parte(%s, %s, current_date, 'x', 'si', 'si')", (PARTE_A, PERF['jugB']))
+for quien in ['anon', 'jugA', 'adminA']:
+    debe_fallar(quien, 'tomar_partes (solo el servidor)', 'select * from tomar_partes()')
+debe_andar('pfA', 'el PF marca una falta', 'select marcar_asistencia(current_date, %s, false) is null', (PERF['jugA'],), esperado=None)
+debe_andar('adminB', 'la ficha cuenta la falta', "select ficha_jugador(%s, current_date - 30, current_date + 1) ->> 'faltas'", (PERF['jugB'],), esperado='1')
+debe_andar('pfA', 'la ficha cuenta el entreno de campo', "select ficha_jugador(%s, current_date - 30, current_date + 1) ->> 'campo'", (PERF['jugA'],), esperado='1')
+
 print('\n== RESUMEN:', len(problemas), 'problemas')
 for p in problemas: print(' -', p)

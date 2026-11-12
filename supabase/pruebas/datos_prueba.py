@@ -69,6 +69,12 @@ q("select guardar_suscripcion('https://push.example/utileroA', 'k', 'a')", uid=U
 pushes = q("select endpoint from tomar_alertas()", one=False)
 assert sorted(x[0] for x in pushes) == ['https://push.example/pfA'], pushes   # solo el staff deportivo
 assert not q("select count(*) from tomar_alertas()"), 'se repite'
+# Parte de fisio en A (lo carga el admin): le llega al PF, no al utilero; en B, uno para que A no lo vea
+q("select guardar_parte(null, %s, current_date, 'Molestia isquio', 'restricciones', 'no', 'sin sprints', current_date + 2)", (PERF_A_JUG := q("select id from perfiles where user_id = %s", (U['jugA'],)),), uid=U['adminA'])
+pp = q("select endpoint from tomar_partes()", one=False)
+assert sorted(x[0] for x in pp) == ['https://push.example/pfA'], pp
+q("select guardar_parte(null, %s, current_date, 'Esguince', 'no', 'no')", (q("select id from perfiles where user_id = %s", (U['jugB'],)),), uid=U['adminB'])
+q("select marcar_asistencia(current_date, %s, false)", (q("select id from perfiles where user_id = %s", (U['jugB'],)),), uid=U['adminB'])
 
 json.dump(dict(U=U, clubA=clubA, clubB=clubB, datos=datos, perf={k: P(k) for k in U if k not in ('owner', 'nadie')}), open(sys.argv[2] if len(sys.argv) > 2 else 'fixtures.json', 'w'), indent=1)
 print('ok', clubA, clubB)

@@ -15,6 +15,7 @@ function useFuentes() {
 }
 import Grafico from './Grafico';
 import Comparador from './Comparador';
+import FichaJugador from './Ficha';
 
 const WELLNESS: Metrica[] = ['preparacion', 'sueno', 'fatiga', 'estres', 'dolor'];
 const etiquetaDia = (f: string) => { const d = desdeIso(f); return `${DIAS_CORTOS[(d.getDay() + 6) % 7]} ${d.getDate()}`; };
@@ -251,6 +252,7 @@ export function PestanaPerfil() {
       </div>
       {!datos ? <Cargando error={error} /> : !j ? <p className="muted">Todavía no hay jugadores.</p> : (
         <>
+          <FichaJugador perfil={j} />
           <div className="card" style={{ padding: 14 }}>
             <Grafico titulo="Preparación" max={5} decimales={1}
               puntos={dias.map((f) => { const v = datos.dia(j, f).preparacion; return { fecha: f, valor: v, tono: semaforo(v, refMovil(datos, j, f, 'preparacion'), 'preparacion') }; })}

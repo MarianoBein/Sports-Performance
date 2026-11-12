@@ -7,6 +7,7 @@ import { COLORES_5, PREGUNTAS, RPE, TEXTO_5, bienDe, colorRpe, type Pregunta } f
 import Dialogo from '../components/Dialogo';
 import { useSearchParams } from 'react-router-dom';
 import PestanaAlertas, { useAlertasRecientes } from './ssh/Alertas';
+import PestanaFisio, { PillEstado, parteVigente, usePartes } from './ssh/Fisio';
 
 type Fila = {
   perfil_id: string; nombre: string; sueno: number | null; fatiga: number | null; estres: number | null; dolor: number | null;
@@ -44,8 +45,8 @@ export default function SportsScience() {
 }
 
 function VistaStaff({ edita }: { edita: boolean }) {
-  type Tab = 'dia' | 'wellness' | 'sesion' | 'semana' | 'perfil' | 'alertas';
-  const tabs = [['dia', 'Día'], ['wellness', 'Wellness'], ['sesion', 'Sesión'], ['semana', 'Semana'], ['perfil', 'Perfil'], ['alertas', 'Alertas']] as const;
+  type Tab = 'dia' | 'wellness' | 'sesion' | 'semana' | 'perfil' | 'fisio' | 'alertas';
+  const tabs = [['dia', 'Día'], ['wellness', 'Wellness'], ['sesion', 'Sesión'], ['semana', 'Semana'], ['perfil', 'Jugador'], ['fisio', 'Fisio'], ['alertas', 'Alertas']] as const;
   const [params, setParams] = useSearchParams();
   const pedida = params.get('pestana') as Tab | null;   // el aviso del celular abre «Alertas»
   const [tab, setTab0] = useState<Tab>(pedida && tabs.some(([k]) => k === pedida) ? pedida : 'dia');
@@ -61,6 +62,7 @@ function VistaStaff({ edita }: { edita: boolean }) {
       {tab === 'sesion' && <PestanaSesion />}
       {tab === 'semana' && <PestanaSemana />}
       {tab === 'perfil' && <PestanaPerfil />}
+      {tab === 'fisio' && <PestanaFisio edita={edita} />}
       {tab === 'alertas' && <PestanaAlertas edita={edita} />}
     </div>
   );
@@ -75,6 +77,21 @@ function VistaDia({ edita }: { edita: boolean }) {
   const [corrigiendo, setCorrigiendo] = useState<Fila | null>(null);
   const { lista: alertas } = useAlertasRecientes(14);
   const alertasDe = (perfil: string) => alertas.filter((a) => a.perfil_id === perfil && a.fecha === fecha);
+  // Partes de fisio que valen para este día (del día, o con el rechequeo todavía por delante)
+  const { lista: partes } = usePartes(iso(sumarDias(desdeIso(fecha), -60)));
+  const parteDe = (perfil: string) => (partes ?? []).find((p) => p.perfil_id === perfil && parteVigente(p, fecha));
+  // Asistencia: solo se guardan las faltas
+  const [faltas, setFaltas] = useState<Set<string>>(new Set());
+  const cargarFaltas = useCallback(async () => {
+    const { data } = await supabase.from('ausencias').select('perfil_id').eq('fecha', fecha);
+    setFaltas(new Set((data ?? []).map((x: { perfil_id: string }) => x.perfil_id)));
+  }, [fecha]);
+  useEffect(() => { cargarFaltas(); }, [cargarFaltas]);
+  async function asistio(perfil: string, presente: boolean) {
+    setFaltas((s) => { const n = new Set(s); if (presente) n.delete(perfil); else n.add(perfil); return n; });
+    const { error } = await supabase.rpc('marcar_asistencia', { p_fecha: fecha, p_perfil: perfil, p_presente: presente });
+    if (error) { setError(mensajeError(error)); cargarFaltas(); }
+  }
 
   const cargar = useCallback(async () => {
     const [r, m, ex] = await Promise.all([
@@ -117,7 +134,7 @@ function VistaDia({ edita }: { edita: boolean }) {
   return (
     <div className="stack">
       <div className="page-head" style={{ marginBottom: 0 }}>
-        <p className="muted small" style={{ margin: 0 }}>Wellness, RPE y minutos del día. Acá se cargan los minutos y se marca «no aplica».</p>
+        <p className="muted small" style={{ margin: 0 }}>Wellness, RPE, minutos y asistencia del día. Acá se cargan los minutos, se marca «no aplica» y se destilda a quien no vino.</p>
         <div className="row">
           <button type="button" className="btn" style={{ width: 44, padding: 0 }} aria-label="Día anterior" onClick={() => setFecha(iso(sumarDias(desdeIso(fecha), -1)))}>‹</button>
           <label><span className="sr-only">Fecha</span><input className="input" type="date" value={fecha} onChange={(e) => e.target.value && setFecha(e.target.value)} style={{ width: 170 }} /></label>
@@ -169,6 +186,7 @@ function VistaDia({ edita }: { edita: boolean }) {
         <table className="tbl" style={{ minWidth: 1080 }}>
           <thead>
             <tr>
+              <th scope="col" title="Destildá a quien no vino al entrenamiento">Vino</th>
               <th scope="col">Jugador</th>
               <th scope="col">Sueño</th>
               <th scope="col">Fatiga</th>
@@ -184,9 +202,20 @@ function VistaDia({ edita }: { edita: boolean }) {
           </thead>
           <tbody>
             {filas.map((f) => (
-              <tr key={f.perfil_id}>
+              <tr key={f.perfil_id} style={faltas.has(f.perfil_id) ? { opacity: 0.55 } : undefined}>
+                <td style={{ textAlign: 'center' }}>
+                  <input type="checkbox" className="asistencia" aria-label={`${f.nombre} vino`} checked={!faltas.has(f.perfil_id)} disabled={!edita}
+                    onChange={(e) => asistio(f.perfil_id, e.target.checked)} style={{ width: 18, height: 18 }} />
+                </td>
                 <th scope="row" style={{ fontWeight: 600 }}>
                   {f.nombre}
+                  {faltas.has(f.perfil_id) && <span className="xs muted" style={{ marginLeft: 6, fontWeight: 400 }}>no vino</span>}
+                  {(() => { const p = parteDe(f.perfil_id); return p && (
+                    <span className="parte-marca row" title={p.motivo} style={{ gap: 4, marginTop: 4, flexWrap: 'wrap', fontWeight: 400 }}>
+                      <span aria-hidden="true">🩺</span>{p.entrena !== 'si' && <PillEstado que="Entrena" estado={p.entrena} />}{p.pesas !== 'si' && <PillEstado que="Pesas" estado={p.pesas} />}
+                      {p.entrena === 'si' && p.pesas === 'si' && <span className="xs muted">parte de fisio</span>}
+                    </span>
+                  ); })()}
                   {alertasDe(f.perfil_id).length > 0 && (
                     <span className="alerta-marca" title={alertasDe(f.perfil_id).map((a) => a.detalle).join('\n')}
                       style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 6, background: '#FDF1E3', color: '#8A4B00', fontSize: 12 }}>⚠ {alertasDe(f.perfil_id).length}</span>
