@@ -15,27 +15,27 @@ import { DialogoFicha, DialogoProgresion } from './Progresion';
 import { fechaLarga, pdfEntreno } from '../../lib/pdfEntreno';
 import { excelSemana } from '../../lib/excelSemana';
 import Dialogo from '../../components/Dialogo';
+import CopiarDias, { type Copia } from '../../components/CopiarDias';
 
 type Jugador = { id: string; nombre: string };
 type Grupo = { id: string; nombre: string };
 type Partido = { fecha: string; hora: string | null; rival: string | null; fuera: boolean };
 type Edicion = { fecha: string; item: Item | null; tipo: 'ejercicio' | 'break' | 'nota' | 'pregunta' };
 type Excepcion = { fecha: string; cuestionario: 'wellness' | 'rpe'; perfil_id: string | null; aplica: boolean };
-type Vista = 'semana' | 'mes';
 
 const accent = 'var(--accent)';
 const primeroDeMes = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
 
 export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca: Ejercicio[]; onBibliotecaCambio: (e: Ejercicio) => void }) {
   const { perfil, esDueno } = useSesion();
-  const [vista, setVista] = useState<Vista>('mes');   // abre en Mes: es más fácil encontrar los ejercicios
-  const [ancla, setAncla] = useState(() => primeroDeMes(new Date())); // lunes (semana) o día 1 (mes)
+  // Solo vista de mes (de lunes a domingo, con los días de los meses vecinos para completar las semanas)
+  const [ancla, setAncla] = useState(() => primeroDeMes(new Date())); // día 1 del mes
   const dias = useMemo(() => {
-    const desde = vista === 'semana' ? ancla : lunesDe(ancla);
+    const desde = lunesDe(ancla);
     const finMes = new Date(ancla.getFullYear(), ancla.getMonth() + 1, 0);
-    const n = vista === 'semana' ? 7 : Math.round((sumarDias(lunesDe(finMes), 7).getTime() - desde.getTime()) / 86400000);
+    const n = Math.round((sumarDias(lunesDe(finMes), 7).getTime() - desde.getTime()) / 86400000);
     return Array.from({ length: n }, (_, i) => iso(sumarDias(desde, i)));
-  }, [vista, ancla]);
+  }, [ancla]);
 
   const [clave, setClave] = useState('equipo');
   const [jugadores, setJugadores] = useState<Jugador[]>([]);
@@ -49,8 +49,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const [sel, setSel] = useState<string[]>([]);
   const [clip, setClip] = useState<Item[]>([]);
   const [diasSel, setDiasSel] = useState<string[]>([]);
-  const [clipDias, setClipDias] = useState<{ offset: number; items: Item[] }[] | null>(null);
-  const [ultimoClip, setUltimoClip] = useState<'items' | 'dias'>('items');
+  const [copiarDesde, setCopiarDesde] = useState<string | null>(null);   // ventana «Copiar entrenamiento»
   const [aviso, setAviso] = useState('');
   const [diaActivo, setDiaActivo] = useState<string>(hoyIso());
   const [edicion, setEdicion] = useState<Edicion | null>(null);
@@ -83,24 +82,26 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   }), [grupos, miembros]);
 
   // ---------- Carga del período ----------
-  const cargar = useCallback(async () => {
-    setMapa(null);
-    const desde = dias[0]; const hasta = dias[dias.length - 1];
-    const [s, acts] = await Promise.all([
-      supabase.from('sesiones')
-        .select('id,fecha,destinos,sesion_items(id,orden,tipo,bloque,ejercicio_id,nombre,series,reps,cada_lado,con_carga,detalle,descanso_seg,nota,origen_id,modificado,config,eliminado_en)')
-        .gte('fecha', desde).lte('fecha', hasta),
-      cargarActividades(iso(sumarDias(desdeIso(desde), -7)), iso(sumarDias(desdeIso(hasta), 7))).catch(() => []),
-    ]);
-    if (s.error) { setError(mensajeError(s.error)); setMapa({}); return; }
+  const aMapa = (filas: Record<string, unknown>[] | null) => {
     const m: Mapa = {};
-    for (const r of (s.data ?? []) as Record<string, unknown>[]) {
+    for (const r of filas ?? []) {
       const ds = r.destinos as Destino[];
       if (!Array.isArray(ds) || ds.length !== 1) continue; // planes combinados de la versión anterior: no se usan
       m[llave(claveDestinos(ds), r.fecha as string)] = ((r.sesion_items as Record<string, unknown>[]) ?? [])
         .filter((i) => !i.eliminado_en).sort((a, b) => Number(a.orden) - Number(b.orden)).map(itemDesdeDb);
     }
-    setMapa(m); setPasado([]); setSel([]);
+    return m;
+  };
+  const COLS_SESION = 'id,fecha,destinos,sesion_items(id,orden,tipo,bloque,ejercicio_id,nombre,series,reps,cada_lado,con_carga,detalle,descanso_seg,nota,origen_id,modificado,config,eliminado_en)';
+  const cargar = useCallback(async () => {
+    setMapa(null);
+    const desde = dias[0]; const hasta = dias[dias.length - 1];
+    const [s, acts] = await Promise.all([
+      supabase.from('sesiones').select(COLS_SESION).gte('fecha', desde).lte('fecha', hasta),
+      cargarActividades(iso(sumarDias(desdeIso(desde), -7)), iso(sumarDias(desdeIso(hasta), 7))).catch(() => []),
+    ]);
+    if (s.error) { setError(mensajeError(s.error)); setMapa({}); return; }
+    setMapa(aMapa(s.data as Record<string, unknown>[])); setPasado([]); setSel([]);
     setPartidos(acts.filter((a) => a.es_partido).map((a) => ({ fecha: a.fecha, hora: a.hora_inicio, rival: a.rival, fuera: a.fuera })));
     setConActividad(new Set(acts.filter((a) => a.tipo === 'deportiva').map((a) => a.fecha)));
     const ex = await supabase.from('cuestionario_excepciones').select('fecha,cuestionario,perfil_id,aplica').gte('fecha', desde).lte('fecha', hasta);
@@ -109,18 +110,18 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   useEffect(() => { cargar(); }, [cargar]);
 
   // ---------- Guardado automático ----------
+  const cambiosDe = (lote: [string, Item[] | null][]) => lote.map(([k, items]) => {
+    const [c, fecha] = k.split('|');
+    return items ? { fecha, destinos: destinosDe(c), items: items.map((it) => ({ ...it, reps: it.reps || null, nota: it.nota || null })) }
+      : { fecha, destinos: destinosDe(c), borrar: true };
+  });
   const guardarPendientes = useCallback(async () => {
     if (temporizador.current) { window.clearTimeout(temporizador.current); temporizador.current = null; }
     const lote = [...pendientes.current.entries()];
     pendientes.current.clear();
     if (!lote.length) return;
     setEstado('guardando');
-    const cambios = lote.map(([k, items]) => {
-      const [c, fecha] = k.split('|');
-      return items ? { fecha, destinos: destinosDe(c), items: items.map((it) => ({ ...it, reps: it.reps || null, nota: it.nota || null })) }
-        : { fecha, destinos: destinosDe(c), borrar: true };
-    });
-    const { error } = await supabase.rpc('guardar_dias', { p_cambios: cambios });
+    const { error } = await supabase.rpc('guardar_dias', { p_cambios: cambiosDe(lote) });
     if (error) { setEstado('error'); setError(`No se pudieron guardar los cambios: ${mensajeError(error)}`); return; }
     setEstado('ok');
   }, []);
@@ -149,9 +150,15 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
 
   // Toda edición del plan elegido pasa por acá: convierte el día en propio si era heredado,
   // marca lo modificado y baja los cambios a los niveles inferiores.
-  function editar(op: (get: (f: string) => Item[], set: (f: string, its: Item[]) => void) => void) {
+  type Op = (get: (f: string) => Item[], set: (f: string, its: Item[]) => void) => void;
+  function editar(op: Op) {
     if (!mapa) return;
-    const m: Mapa = { ...mapa };
+    const { m, choques } = operar(mapa, op);
+    aplicarMapa(m);
+    if (choques.length) setConflictos(choques);
+  }
+  function operar(base: Mapa, op: Op) {
+    const m: Mapa = { ...base };
     const viejos: Record<string, Item[]> = {};
     const get = (f: string) => { const its = materializar(clave, f, m, ctx); if (!(f in viejos)) viejos[f] = its; return its; };
     const set = (f: string, its: Item[]) => { get(f); m[llave(clave, f)] = its; };
@@ -162,8 +169,37 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
       m[llave(clave, f)] = nuevo;
       propagar(clave, f, viejos[f], nuevo, m, ctx, choques);
     }
-    aplicarMapa(m);
-    if (choques.length) setConflictos(choques);
+    return { m, choques };
+  }
+
+  // Ventana «Copiar entrenamiento»: días completos (uno o un rango) a otro día o a un rango.
+  // Trae del servidor lo que haga falta aunque esté fuera del mes que se ve.
+  async function copiarConVentana({ pares, opciones }: Copia): Promise<string> {
+    await guardarPendientes();
+    const fechas = pares.flat().sort();
+    const { data, error } = await supabase.from('sesiones').select(COLS_SESION).gte('fecha', fechas[0]).lte('fecha', fechas[fechas.length - 1]);
+    if (error) return mensajeError(error);
+    const base = aMapa(data as Record<string, unknown>[]);
+    const origen = new Map(pares.map(([o]) => [o, efectivo(clave, o, base, ctx).items]));
+    const copia = (it: Item): Item => ({ ...fresco(it), detalle: it.detalle.map((x) => ({ ...x, kg: opciones.cargas ? x.kg : null })) });
+    const { m, choques } = operar(base, (get, set) => {
+      for (const [o, d] of pares) {
+        const its = origen.get(o) ?? [];
+        if (!its.length && !opciones.limpiar) continue;
+        set(d, [...(opciones.limpiar ? [] : get(d)), ...its.map(copia)]);
+      }
+    });
+    const lote = Object.keys({ ...base, ...m }).filter((k) => base[k] !== m[k]).map((k) => [k, m[k] ?? null] as [string, Item[] | null]);
+    if (lote.length) {
+      setEstado('guardando');
+      const r = await supabase.rpc('guardar_dias', { p_cambios: cambiosDe(lote) });
+      if (r.error) { setEstado('error'); return mensajeError(r.error); }
+      setEstado('ok');
+    }
+    setCopiarDesde(null);
+    setAviso(`Copiado en ${pares.length} día${pares.length > 1 ? 's' : ''}.${choques.length ? ' Algunos grupos o jugadores tenían cambios propios esos días: se mantuvieron.' : ''}`);
+    await cargar();
+    return '';
   }
 
   // En un día heredado, lo que se ve son los ejercicios de arriba; sus copias recuerdan de cuál salieron.
@@ -173,9 +209,9 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
     await guardarPendientes();
     setClave(c); setSel([]); setPasado([]);
   }
-  async function moverPeriodo(nuevo: Date, v: Vista = vista) {
+  async function moverPeriodo(nuevo: Date) {
     await guardarPendientes();
-    setVista(v); setAncla(nuevo);
+    setAncla(primeroDeMes(nuevo));
   }
 
   // ---------- Vista efectiva del plan elegido ----------
@@ -186,34 +222,13 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const fresco = (it: Item): Item => ({ ...it, id: nuevoId(), origen_id: null, modificado: false, detalle: it.detalle.map((s) => ({ ...s })), config: { ...(it.config ?? {}) } });
   const copiar = () => {
     const its = dias.flatMap(visibles).filter((it) => sel.includes(it.id));
-    if (its.length) { setClip(its); setUltimoClip('items'); setAviso(`Copiado: ${its.length} elemento${its.length > 1 ? 's' : ''}. Elegí un día y pegá con ⌘V.`); return; }
-    copiarDias();
+    if (its.length) { setClip(its); setAviso(`Copiado: ${its.length} elemento${its.length > 1 ? 's' : ''}. Elegí un día y pegá con ⌘V.`); }
   };
   const pegar = (dia = diaActivo) => {
-    if (ultimoClip === 'dias' && clipDias) { pegarDias(dia); return; }
     if (!clip.length || !dias.includes(dia)) return;
     const frescos = clip.map(fresco);
     editar((get, set) => set(dia, [...get(dia), ...frescos]));
     setSel(frescos.map((f) => f.id)); setDiaActivo(dia);
-  };
-  // Copiar días completos (uno o un rango, por ejemplo una semana) y pegarlos desde otro día.
-  const copiarDias = () => {
-    if (!diasSel.length) return;
-    const orden = [...diasSel].sort();
-    const base = desdeIso(orden[0]).getTime();
-    setClipDias(orden.map((f) => ({ offset: Math.round((desdeIso(f).getTime() - base) / 86400000), items: visibles(f) })));
-    setUltimoClip('dias');
-    setAviso(`Copiado${orden.length > 1 ? 's' : ''} ${orden.length} día${orden.length > 1 ? 's' : ''}. Tocá el día donde querés que empiece y pegá con ⌘V (o «Pegar acá»).`);
-    setDiasSel([]);
-  };
-  const pegarDias = (desde = diaActivo) => {
-    if (!clipDias) return;
-    const destinos = clipDias.map((c) => ({ f: iso(sumarDias(desdeIso(desde), c.offset)), items: c.items })).filter((c) => c.items.length);
-    const dentro = destinos.filter((c) => dias.includes(c.f));
-    if (!dentro.length) { setAviso('Esos días quedan fuera de la vista. Pasá a la semana o al mes donde querés pegar.'); return; }
-    editar((get, set) => { for (const c of dentro) set(c.f, [...get(c.f), ...c.items.map(fresco)]); });
-    const fuera = destinos.length - dentro.length;
-    setAviso(fuera ? `Pegado. ${fuera} día${fuera > 1 ? 's' : ''} quedaron fuera de la vista: avanzá y pegá de nuevo desde el día que corresponda.` : 'Pegado.');
   };
   const borrarDias = () => {
     if (!diasSel.length) return;
@@ -279,7 +294,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => {
       const t = (e.target as HTMLElement | null)?.tagName ?? '';
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t) || edicion || conflictos) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t) || edicion || conflictos || copiarDesde) return;
       const k = e.key.toLowerCase(); const mod = e.metaKey || e.ctrlKey;
       if (mod && k === 'c') { e.preventDefault(); copiar(); }
       else if (mod && k === 'v') { e.preventDefault(); pegar(); }
@@ -304,16 +319,11 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
   const hoy = hoyIso();
   const partidosIso = partidos.map((p) => p.fecha);
   const etiquetaDia = (d: string) => `${DIAS_CORTOS[(desdeIso(d).getDay() + 6) % 7]} ${desdeIso(d).getDate()}`;
-  const compacto = vista === 'mes';
-  const ini = desdeIso(dias[0]);
-  const fin = desdeIso(dias[dias.length - 1]);
-  const titulo = compacto
-    ? `${MESES[ancla.getMonth()][0].toUpperCase()}${MESES[ancla.getMonth()].slice(1)} ${ancla.getFullYear()}`
-    : ini.getMonth() === fin.getMonth() ? `Semana del ${ini.getDate()} al ${fin.getDate()} de ${MESES[fin.getMonth()]}`
-      : `Semana del ${ini.getDate()} de ${MESES[ini.getMonth()]} al ${fin.getDate()} de ${MESES[fin.getMonth()]}`;
-  const anterior = () => moverPeriodo(compacto ? new Date(ancla.getFullYear(), ancla.getMonth() - 1, 1) : sumarDias(ancla, -7));
-  const siguiente = () => moverPeriodo(compacto ? new Date(ancla.getFullYear(), ancla.getMonth() + 1, 1) : sumarDias(ancla, 7));
-  const irHoy = () => moverPeriodo(compacto ? primeroDeMes(new Date()) : lunesDe(new Date()));
+  const compacto = true;
+  const titulo = `${MESES[ancla.getMonth()][0].toUpperCase()}${MESES[ancla.getMonth()].slice(1)} ${ancla.getFullYear()}`;
+  const anterior = () => moverPeriodo(new Date(ancla.getFullYear(), ancla.getMonth() - 1, 1));
+  const siguiente = () => moverPeriodo(new Date(ancla.getFullYear(), ancla.getMonth() + 1, 1));
+  const irHoy = () => moverPeriodo(new Date());
 
   const tramosDe = (its: Item[]) => {
     const out: { brk: Item | null; items: Item[] }[] = [];
@@ -424,10 +434,6 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
             <button type="button" className="btn btn-sm" onClick={irHoy}>Hoy</button>
             <button type="button" className="btn btn-sm" aria-label={compacto ? 'Mes siguiente' : 'Semana siguiente'} onClick={siguiente}>›</button>
           </div>
-          <div className="row" role="group" aria-label="Vista" style={{ gap: 4 }}>
-            <button type="button" className="chip" aria-pressed={!compacto} onClick={() => compacto && moverPeriodo(lunesDe(dias.includes(diaActivo) ? desdeIso(diaActivo) : ancla), 'semana')}>Semana</button>
-            <button type="button" className="chip" aria-pressed={compacto} onClick={() => !compacto && moverPeriodo(primeroDeMes(sumarDias(ancla, 3)), 'mes')}>Mes</button>
-          </div>
           <button type="button" className="btn btn-sm" disabled={pdfOcupado} title="Excel de toda la semana del día elegido, con el diseño del planning y links a los videos"
             onClick={async () => {
               setPdfOcupado(true);
@@ -449,7 +455,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
             }}>{pdfOcupado ? 'Armando PDF…' : `⬇ PDF ${etiquetaDia(diaActivo)}`}</button>
           {esDueno && clave.startsWith('persona:') && (
             <div className="row" style={{ gap: 4 }}>
-              {!compacto && <button type="button" className="btn btn-sm" title="Solo vos lo ves (en prueba)" onClick={async () => { await guardarPendientes(); setCliente('progresion'); }}>📈 Proponer semana siguiente</button>}
+              <button type="button" className="btn btn-sm" title="Propone la semana siguiente a la del día elegido. Solo vos lo ves (en prueba)" onClick={async () => { await guardarPendientes(); setCliente('progresion'); }}>📈 Proponer semana siguiente</button>
               <button type="button" className="btn btn-sm btn-ghost" title="Solo vos lo ves (en prueba)" onClick={() => setCliente('ficha')}>Ficha</button>
             </div>
           )}
@@ -465,21 +471,13 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
           </p>
         )}
 
-        {(diasSel.length > 0 || (clipDias && ultimoClip === 'dias') || aviso) && (
+        {(diasSel.length > 0 || aviso) && (
           <div className="row card" style={{ padding: '8px 12px', gap: 8, position: 'sticky', top: 0, zIndex: 3 }}>
             {diasSel.length > 0 && (
               <>
                 <strong className="small">{diasSel.length} día{diasSel.length > 1 ? 's' : ''} elegido{diasSel.length > 1 ? 's' : ''}</strong>
-                <button type="button" className="btn btn-sm btn-primary" onClick={copiarDias}>Copiar {diasSel.length > 1 ? 'días' : 'día'}</button>
                 <button type="button" className="btn btn-sm link-danger" onClick={borrarDias}>Vaciar</button>
                 <button type="button" className="btn btn-sm btn-ghost" onClick={() => setDiasSel([])}>Cancelar</button>
-              </>
-            )}
-            {!diasSel.length && clipDias && ultimoClip === 'dias' && (
-              <>
-                <span className="small">{clipDias.length} día{clipDias.length > 1 ? 's' : ''} copiado{clipDias.length > 1 ? 's' : ''}.</span>
-                <button type="button" className="btn btn-sm btn-primary" onClick={() => pegarDias()}>Pegar desde {etiquetaDia(dias.includes(diaActivo) ? diaActivo : dias[0])}</button>
-                <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setClipDias(null); setUltimoClip('items'); setAviso(''); }}>Descartar</button>
               </>
             )}
             {aviso && <span className="xs muted" style={{ flex: '1 1 260px' }}>{aviso}</span>}
@@ -508,18 +506,23 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                     onDragLeave={() => { if (soltarEn === d) setSoltarEn(null); }}
                     onDrop={(e) => { e.preventDefault(); mover(arrastre, d); setArrastre([]); setSoltarEn(null); }}
                     style={{
-                      minHeight: compacto ? 150 : 520, borderRadius: 14, padding: compacto ? 8 : 10, display: 'flex', flexDirection: 'column', gap: compacto ? 6 : 8, minWidth: 0,
+                      minHeight: 150, borderRadius: 14, padding: 8, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0,
                       background: esHoy ? 'var(--card)' : '#EDEBE6', opacity: fueraDeMes ? 0.55 : 1,
-                      boxShadow: soltarEn === d || esHoy ? `inset 0 0 0 2px ${accent}` : diaActivo === d ? 'inset 0 0 0 1.5px #9A9DA4' : undefined,
+                      boxShadow: soltarEn === d ? `inset 0 0 0 2px ${accent}` : esHoy ? `inset 0 0 0 3px ${accent}` : diaActivo === d ? 'inset 0 0 0 1.5px #9A9DA4' : undefined,
                     }}>
                     <header className="row" style={{ justifyContent: 'space-between', gap: 4 }}>
-                      <button type="button" aria-pressed={diasSel.includes(d)} title="Clic para elegir el día entero (Mayús para un rango) y copiarlo"
+                      <button type="button" aria-pressed={diasSel.includes(d)} title="Clic para elegir el día entero (Mayús para un rango) y vaciarlo"
                         onClick={(e) => clicDia(e, d)}
-                        style={{ border: 0, borderRadius: 8, padding: '2px 8px', margin: '-2px -4px', fontWeight: 700, fontSize: compacto ? 13 : 15, cursor: 'pointer',
-                          background: diasSel.includes(d) ? '#16181D' : 'transparent', color: diasSel.includes(d) ? '#fff' : 'inherit' }}>
-                        {compacto ? desdeIso(d).getDate() : etiquetaDia(d)}
+                        style={{ border: 0, borderRadius: 8, padding: '2px 8px', margin: '-2px -4px', fontWeight: 700, fontSize: 13, cursor: 'pointer',
+                          background: diasSel.includes(d) ? '#16181D' : esHoy ? accent : 'transparent', color: diasSel.includes(d) || esHoy ? '#fff' : 'inherit' }}>
+                        {desdeIso(d).getDate()}{esHoy && <span style={{ fontWeight: 600, marginLeft: 4 }}>· Hoy</span>}
                       </button>
-                      {md && <span className="pill" style={md === 'MD' ? { background: accent, color: '#fff' } : { background: 'var(--card)', color: '#3F444D' }}>{md}</span>}
+                      <span className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                        {md && <span className="pill" style={md === 'MD' ? { background: accent, color: '#fff' } : { background: 'var(--card)', color: '#3F444D' }}>{md}</span>}
+                        <button type="button" className="copiar-dia" aria-label={`Copiar el entrenamiento del ${etiquetaDia(d)}`} title="Copiar este día (o un rango) a otros días"
+                          onClick={(e) => { e.stopPropagation(); setDiaActivo(d); setCopiarDesde(d); }}
+                          style={{ border: 0, background: 'transparent', cursor: 'pointer', padding: '0 4px', fontSize: 15, lineHeight: 1, color: 'var(--muted)' }}>⧉</button>
+                      </span>
                     </header>
 
                     {clave !== 'equipo' && (ef.propio || heredado) && (
@@ -532,7 +535,6 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                       </div>
                     )}
 
-                    {!compacto && <Cuestionario c="wellness" d={d} tiene={its.length > 0} />}
 
                     {tramosDe(its).map((t, ti) => (
                       <div key={t.brk?.id ?? `inicio-${ti}`} style={{ background: 'var(--card)', borderRadius: 10, overflow: 'hidden', border: heredado ? '1px dashed #C9C6BF' : '1px solid transparent' }}>
@@ -605,7 +607,10 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
                     )}
 
                     <span style={{ flex: 1 }} />
-                    {!compacto && <Cuestionario c="rpe" d={d} tiene={its.length > 0} />}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <Cuestionario c="wellness" d={d} tiene={its.length > 0} />
+                      <Cuestionario c="rpe" d={d} tiene={its.length > 0} />
+                    </div>
                   </section>
                 );
               })}
@@ -615,7 +620,7 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
 
         <p className="xs muted" style={{ margin: 0 }}>
           Clic para elegir (⌘ o Mayús para varios) · doble clic para editar · ⌘C copiar · ⌘V pegar en el día marcado · ⌘Z deshacer · Supr borrar · arrastrá para mover o reordenar.
-          Para copiar días enteros: clic en el nombre del día (Mayús + clic en otro para un rango, por ejemplo la semana) → ⌘C → tocá el día donde empieza → ⌘V. Se guarda solo.
+          Para copiar días enteros o un rango (por ejemplo una semana en todo el mes): botón ⧉ arriba de cada día. Se guarda solo.
         </p>
       </div>
 
@@ -644,11 +649,18 @@ export default function Semana({ biblioteca, onBibliotecaCambio }: { biblioteca:
         <DialogoFicha perfilId={clave.slice(8)} nombre={nombrePlan(clave)} onCerrar={(c) => { setCliente(null); if (c) setAviso('Ficha guardada.'); }} />
       )}
       {cliente === 'progresion' && clave.startsWith('persona:') && (
-        <DialogoProgresion perfilId={clave.slice(8)} nombre={nombrePlan(clave)} lunes={dias[0]} biblioteca={biblioteca} ctx={ctx}
+        <DialogoProgresion perfilId={clave.slice(8)} nombre={nombrePlan(clave)} lunes={iso(lunesDe(desdeIso(diaActivo)))} biblioteca={biblioteca} ctx={ctx}
           onCerrar={() => setCliente(null)}
-          onAplicado={(msg, lunesSig) => { setCliente(null); setAviso(msg); void moverPeriodo(desdeIso(lunesSig), 'semana'); }} />
+          onAplicado={(msg, lunesSig) => { setCliente(null); setAviso(msg); void moverPeriodo(desdeIso(lunesSig)); }} />
       )}
-            {conflictos && mapa && (
+            {copiarDesde && (
+        <CopiarDias titulo={`Copiar entrenamiento · ${nombrePlan(clave)}`} inicio={copiarDesde} onCerrar={() => setCopiarDesde(null)} onCopiar={copiarConVentana}
+          opciones={[
+            { clave: 'cargas', texto: 'Copiar las cargas (kg) puestas', ayuda: 'Si lo destildás, se copian series y reps sin los kilos.', def: true },
+            { clave: 'limpiar', texto: 'Borrar lo que ya había en esos días', ayuda: 'Si no, lo copiado se agrega abajo de lo que ya está.', def: false },
+          ]} />
+      )}
+      {conflictos && mapa && (
         <DialogoConflictos lista={conflictos} nombrePlan={nombrePlan} etiquetaDia={etiquetaDia}
           onCerrar={() => setConflictos(null)}
           onAplicar={(elegidos) => {

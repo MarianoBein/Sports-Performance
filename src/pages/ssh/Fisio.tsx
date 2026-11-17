@@ -9,12 +9,13 @@ import Dialogo from '../../components/Dialogo';
 
 export type Estado = 'si' | 'no' | 'restricciones';
 export type Parte = {
-  id: string; perfil_id: string; fecha: string; motivo: string; entrena: Estado; pesas: Estado;
-  restricciones: string | null; fecha_rechequeo: string | null; creado_en: string;
+  id: string; perfil_id: string | null; nombre_libre: string | null; fecha: string; motivo: string; entrena: Estado; pesas: Estado;
+  restricciones: string | null; fecha_rechequeo: string | null; fecha_alta: string | null; creado_en: string;
 };
 export const TXT_ESTADO: Record<Estado, string> = { si: 'Sí', no: 'No', restricciones: 'Con restricciones' };
 export const COLOR_ESTADO: Record<Estado, [string, string]> = { si: ['#E3F2EA', '#1F6B45'], no: ['#FBE3E6', '#8E1022'], restricciones: ['#FDF1E3', '#8A4B00'] };
-const COLS = 'id,perfil_id,fecha,motivo,entrena,pesas,restricciones,fecha_rechequeo,creado_en';
+const COLS = 'id,perfil_id,nombre_libre,fecha,motivo,entrena,pesas,restricciones,fecha_rechequeo,fecha_alta,creado_en';
+const LIBRE = '__libre';
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 const ddmm = (f: string) => { const d = desdeIso(f); return `${d.getDate()}/${d.getMonth() + 1}`; };
 
@@ -38,10 +39,19 @@ export function usePartes(desde: string, perfil?: string) {
   return { lista, error, cargar };
 }
 
-// Un parte «vale» para un día si es de ese día, o si es anterior y el rechequeo todavía no pasó.
-export const parteVigente = (p: Parte, dia: string) => p.fecha === dia || (p.fecha < dia && !!p.fecha_rechequeo && p.fecha_rechequeo >= dia);
+// ---------- Disponibilidad ----------
+// Por jugador (registrado o con nombre escrito a mano) vale su último parte hasta ese día,
+// mientras no tenga el alta y el rechequeo no haya pasado.
+export type Disp = 'fuera' | 'adaptado' | 'disponible';
+export const dispDe = (p: Parte): Disp => (p.entrena === 'no' ? 'fuera' : p.entrena === 'restricciones' || p.pesas !== 'si' ? 'adaptado' : 'disponible');
+const claveDe = (p: Parte) => p.perfil_id ?? `n:${(p.nombre_libre ?? '').trim().toLowerCase()}`;
+export function vigentes(partes: Parte[], dia: string): Parte[] {
+  const ultimo = new Map<string, Parte>();
+  for (const p of [...partes].filter((x) => x.fecha <= dia).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.creado_en.localeCompare(b.creado_en))) ultimo.set(claveDe(p), p);
+  return [...ultimo.values()].filter((p) => (!p.fecha_alta || p.fecha_alta > dia) && (!p.fecha_rechequeo || p.fecha_rechequeo >= dia));
+}
 
-function useJugadores() {
+export function useJugadores() {
   const [lista, setLista] = useState<{ id: string; nombre: string }[]>([]);
   useEffect(() => {
     supabase.from('perfiles').select('id,nombre,rol:roles!inner(es_jugador)').eq('rol.es_jugador', true).is('eliminado_en', null).order('nombre')
@@ -56,7 +66,7 @@ export default function PestanaFisio({ edita }: { edita: boolean }) {
   const desde = iso(sumarDias(desdeIso(hoy), -dias));
   const { lista, error, cargar } = usePartes(desde);
   const jugadores = useJugadores();
-  const nombre = (id: string) => jugadores.find((j) => j.id === id)?.nombre ?? '…';
+  const nombre = (p: Parte) => p.nombre_libre ?? jugadores.find((j) => j.id === p.perfil_id)?.nombre ?? '…';
   const [editando, setEditando] = useState<Partial<Parte> | null>(null);
   const [borrando, setBorrando] = useState<Parte | null>(null);
   const [filtro, setFiltro] = useState('');
@@ -65,6 +75,11 @@ export default function PestanaFisio({ edita }: { edita: boolean }) {
   const rechequeos = useMemo(() => (lista ?? []).filter((p) => p.fecha_rechequeo && p.fecha_rechequeo >= hoy).sort((a, b) => a.fecha_rechequeo!.localeCompare(b.fecha_rechequeo!)), [lista, hoy]);
   const visibles = (lista ?? []).filter((p) => !filtro || p.perfil_id === filtro);
 
+  async function alta(p: Parte, fecha: string | null) {
+    const { error } = await supabase.rpc('dar_alta_parte', { p_id: p.id, p_fecha: fecha });
+    if (error) setErrorAccion(mensajeError(error)); else setErrorAccion('');
+    cargar();
+  }
   async function borrar(p: Parte) {
     const { error } = await supabase.rpc('eliminar_parte', { p_id: p.id });
     if (error) setErrorAccion(mensajeError(error));
@@ -87,7 +102,7 @@ export default function PestanaFisio({ edita }: { edita: boolean }) {
           {rechequeos.map((p) => (
             <div key={p.id} className="row" style={{ gap: 8, padding: '6px 10px', borderRadius: 8, background: p.fecha_rechequeo === hoy ? '#FDF1E3' : 'var(--bg)' }}>
               <strong style={{ minWidth: 92 }}>{p.fecha_rechequeo === hoy ? 'Hoy' : fechaLarga(p.fecha_rechequeo!).split(' de ')[0]}</strong>
-              <span style={{ flex: 1 }}>{nombre(p.perfil_id)} <span className="small muted">· {p.motivo.slice(0, 80)}</span></span>
+              <span style={{ flex: 1 }}>{nombre(p)} <span className="small muted">· {p.motivo.slice(0, 80)}</span></span>
             </div>
           ))}
         </section>
@@ -113,9 +128,11 @@ export default function PestanaFisio({ edita }: { edita: boolean }) {
         {!lista ? <span className="small muted">Cargando…</span> : !visibles.length ? <span className="small muted">No hay partes en este período.</span> : visibles.map((p) => (
           <div key={p.id} className="parte" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '10px 12px', border: '1px solid var(--line-soft)', borderRadius: 10 }}>
             <div className="row" style={{ gap: 8, justifyContent: 'space-between' }}>
-              <strong>{nombre(p.perfil_id)} <span className="small muted" style={{ fontWeight: 400 }}>· {cap(fechaLarga(p.fecha))}</span></strong>
+              <strong>{nombre(p)} <span className="small muted" style={{ fontWeight: 400 }}>· {cap(fechaLarga(p.fecha))}</span></strong>
               {edita && (
                 <div className="row" style={{ gap: 6 }}>
+                  {!p.fecha_alta && dispDe(p) !== 'disponible' && <button type="button" className="btn btn-sm" title="Sale del tablero de disponibilidad desde hoy" onClick={() => alta(p, hoy < p.fecha ? p.fecha : hoy)}>Dar el alta</button>}
+                  {p.fecha_alta && <button type="button" className="btn btn-sm btn-ghost" onClick={() => alta(p, null)}>Quitar alta</button>}
                   <button type="button" className="btn btn-sm" onClick={() => setEditando(p)}>Editar</button>
                   <button type="button" className="btn btn-sm btn-ghost" onClick={() => setBorrando(p)}>Borrar</button>
                 </div>
@@ -125,6 +142,8 @@ export default function PestanaFisio({ edita }: { edita: boolean }) {
             <div className="row" style={{ gap: 6 }}>
               <PillEstado que="Entrena" estado={p.entrena} /><PillEstado que="Pesas" estado={p.pesas} />
               {p.fecha_rechequeo && <span className="pill" style={{ background: '#EEF3FD', color: '#1D3F8F', fontSize: 12 }}>Rechequeo {ddmm(p.fecha_rechequeo)}</span>}
+              {p.fecha_alta && <span className="pill" style={{ background: '#E3F2EA', color: '#1F6B45', fontSize: 12 }}>Alta {ddmm(p.fecha_alta)}</span>}
+              {p.nombre_libre && <span className="xs muted" title="Todavía no está registrado en la app">nombre escrito a mano</span>}
             </div>
             {p.restricciones && <span className="small muted">Restricciones: {p.restricciones}</span>}
           </div>
@@ -135,7 +154,7 @@ export default function PestanaFisio({ edita }: { edita: boolean }) {
       {borrando && (
         <Dialogo titulo="¿Borrar este parte?" ancho={440} onCerrar={() => setBorrando(null)}
           pie={<><button type="button" className="btn" onClick={() => setBorrando(null)}>Cancelar</button><button type="button" className="btn btn-primary" onClick={() => borrar(borrando)}>Borrar</button></>}>
-          <span className="small">Parte de {nombre(borrando.perfil_id)} del {ddmm(borrando.fecha)}. No se puede deshacer.</span>
+          <span className="small">Parte de {nombre(borrando)} del {ddmm(borrando.fecha)}. No se puede deshacer.</span>
         </Dialogo>
       )}
     </div>
@@ -152,11 +171,11 @@ function Opciones({ id, valor, onCambio }: { id: string; valor: Estado; onCambio
   );
 }
 
-function EditorParte({ inicial, jugadores, onCerrar, onGuardado }: {
+export function EditorParte({ inicial, jugadores, onCerrar, onGuardado }: {
   inicial: Partial<Parte>; jugadores: { id: string; nombre: string }[]; onCerrar: () => void; onGuardado: () => void;
 }) {
   const [p, setP] = useState({
-    perfil_id: inicial.perfil_id ?? '', fecha: inicial.fecha ?? hoyIso(), motivo: inicial.motivo ?? '',
+    perfil_id: inicial.nombre_libre ? LIBRE : inicial.perfil_id ?? '', nombre_libre: inicial.nombre_libre ?? '', fecha: inicial.fecha ?? hoyIso(), motivo: inicial.motivo ?? '',
     entrena: (inicial.entrena ?? 'si') as Estado, pesas: (inicial.pesas ?? 'si') as Estado, restricciones: inicial.restricciones ?? '',
   });
   const [volver, setVolver] = useState(!!inicial.fecha_rechequeo);
@@ -167,12 +186,12 @@ function EditorParte({ inicial, jugadores, onCerrar, onGuardado }: {
 
   async function guardar() {
     setError('');
-    if (!p.perfil_id) { setError('Elegí el jugador.'); return; }
+    if (!p.perfil_id || (p.perfil_id === LIBRE && !p.nombre_libre.trim())) { setError('Elegí el jugador o escribí su nombre.'); return; }
     if (!p.motivo.trim()) { setError('Escribí el motivo.'); return; }
     if (volver && (!rechequeo || rechequeo < p.fecha)) { setError('La fecha del rechequeo tiene que ser después del parte.'); return; }
     setGuardando(true);
     const { error } = await supabase.rpc('guardar_parte', {
-      p_id: inicial.id ?? null, p_perfil: p.perfil_id, p_fecha: p.fecha, p_motivo: p.motivo.trim(), p_entrena: p.entrena, p_pesas: p.pesas,
+      p_id: inicial.id ?? null, p_perfil: p.perfil_id === LIBRE ? null : p.perfil_id, p_nombre_libre: p.perfil_id === LIBRE ? p.nombre_libre.trim() : null, p_fecha: p.fecha, p_motivo: p.motivo.trim(), p_entrena: p.entrena, p_pesas: p.pesas,
       p_restricciones: conRestr ? p.restricciones.trim() || null : null, p_fecha_rechequeo: volver ? rechequeo : null,
     });
     setGuardando(false);
@@ -188,8 +207,14 @@ function EditorParte({ inicial, jugadores, onCerrar, onGuardado }: {
           <select id="parte-jugador" className="select" value={p.perfil_id} onChange={(e) => setP({ ...p, perfil_id: e.target.value })}>
             <option value="">Elegí…</option>
             {jugadores.map((j) => <option key={j.id} value={j.id}>{j.nombre}</option>)}
+            <option value={LIBRE}>✏️ No está en la app: escribir el nombre</option>
           </select>
         </label>
+        {p.perfil_id === LIBRE && (
+          <label className="field"><span>Nombre y apellido</span>
+            <input id="parte-nombre" className="input" autoFocus maxLength={120} value={p.nombre_libre} onChange={(e) => setP({ ...p, nombre_libre: e.target.value })} placeholder="Por ejemplo: Mariano Bein" />
+          </label>
+        )}
         <label className="field"><span>Día de la atención</span>
           <input id="parte-fecha" className="input" type="date" value={p.fecha} max={iso(sumarDias(new Date(), 1))} onChange={(e) => setP({ ...p, fecha: e.target.value })} />
         </label>

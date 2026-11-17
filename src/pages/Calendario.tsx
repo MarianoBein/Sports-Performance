@@ -1,16 +1,17 @@
+import CopiarDias, { type Copia } from '../components/CopiarDias';
+import { TableroDisponibilidad } from './ssh/Disponibilidad';
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { useSesion } from '../lib/sesion';
 import {
-  DIAS_CORTOS, ETIQUETAS, MESES, TIPOS, cargarActividades, desdeIso, diaSemana, enlaceMapa, fechaLarga, hora, hoyIso,
+  DIAS_CORTOS, ETIQUETAS, MESES, TIPOS, cargarActividades, desdeIso, enlaceMapa, fechaLarga, hora, hoyIso,
   iso, lunesDe, sumarDias, titulo, type Actividad, type Destino, type Tipo,
 } from '../lib/calendario';
 
 type PersonaMin = { id: string; nombre: string; rol: { nombre: string; clave: string; es_jugador: boolean } | null };
 type Grupo = { id: string; nombre: string };
 type Lugar = { id: string; nombre: string; direccion: string | null };
-type Vista = 'mes' | 'semana' | 'dia';
 
 function Dialogo({ titulo: t, onCerrar, children, pie, ancho = 640 }: { titulo: string; onCerrar: () => void; children: ReactNode; pie?: ReactNode; ancho?: number }) {
   useEffect(() => {
@@ -43,8 +44,14 @@ export default function Calendario() {
   const puedeCrear = nivel === 'editar' || nivel === 'propio';
   const puedeExportar = !!(perfil?.es_admin || permisos?.calendario.exporta);
 
-  const [vista, setVista] = useState<Vista>(() => (window.innerWidth < 760 ? 'dia' : 'mes'));
+  // Solo vista de mes. En el celular, la grilla es compacta y al tocar un día se abre su lista.
   const [ref, setRef] = useState(() => new Date());
+  const [angosto, setAngosto] = useState(() => typeof window !== 'undefined' && window.innerWidth < 760);
+  useEffect(() => { const f = () => setAngosto(window.innerWidth < 760); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f); }, []);
+  const [diaAbierto, setDiaAbierto] = useState<string | null>(null);
+  const [copiarDesde, setCopiarDesde] = useState<string | null>(null);
+  const veDisponibilidad = !!perfil && !perfil.rol.es_jugador && ['ver', 'editar'].includes(permisos?.sports_science.nivel ?? 'sin');
+  const editaSsh = permisos?.sports_science.nivel === 'editar';
   const [acts, setActs] = useState<Actividad[]>([]);
   const [personas, setPersonas] = useState<PersonaMin[]>([]);
   const [grupos, setGrupos] = useState<Grupo[]>([]);
@@ -69,14 +76,7 @@ export default function Calendario() {
   const tactil = useMemo(() => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)').matches, []);
   const pulsacion = useRef<number | null>(null);
 
-  const rango = useMemo(() => {
-    if (vista === 'mes') {
-      const inicio = lunesDe(new Date(ref.getFullYear(), ref.getMonth(), 1));
-      return { desde: inicio, dias: 42 };
-    }
-    if (vista === 'semana') return { desde: lunesDe(ref), dias: 7 };
-    return { desde: new Date(ref.getFullYear(), ref.getMonth(), ref.getDate()), dias: 1 };
-  }, [vista, ref]);
+  const rango = useMemo(() => ({ desde: lunesDe(new Date(ref.getFullYear(), ref.getMonth(), 1)), dias: 42 }), [ref]);
 
   const cargar = useCallback(async () => {
     try {
@@ -109,15 +109,10 @@ export default function Calendario() {
 
   function mover(n: number) {
     const d = new Date(ref);
-    if (vista === 'mes') d.setMonth(d.getMonth() + n, 1);
-    else d.setDate(d.getDate() + (vista === 'semana' ? 7 * n : n));
+    d.setMonth(d.getMonth() + n, 1);
     setRef(d);
   }
-  const cabecera = vista === 'mes'
-    ? `${MESES[ref.getMonth()][0].toUpperCase()}${MESES[ref.getMonth()].slice(1)} ${ref.getFullYear()}`
-    : vista === 'semana'
-      ? (() => { const a = lunesDe(ref), b = sumarDias(a, 6); return `${a.getDate()} ${a.getMonth() !== b.getMonth() ? MESES[a.getMonth()] + ' ' : ''}al ${b.getDate()} de ${MESES[b.getMonth()]}`; })()
-      : fechaLarga(iso(ref));
+  const cabecera = `${MESES[ref.getMonth()][0].toUpperCase()}${MESES[ref.getMonth()].slice(1)} ${ref.getFullYear()}`;
 
   const puedeEditarAct = (a: Actividad) => nivel === 'editar' || (nivel === 'propio' && a.creado_por === perfil?.id);
   const datosDe = (a: Actividad, fecha: string) => ({
@@ -180,6 +175,34 @@ export default function Calendario() {
     setTrabajando('');
     setAviso(f ? `Deshecho en parte: ${plural(f, 'cambio no se pudo', 'cambios no se pudieron')} revertir.` : `Deshecho: ${ultimo.texto.toLowerCase()}.`);
     await cargar();
+  }
+  // Ventana «Copiar actividades»: días completos (uno o un rango) a otro día o a un rango.
+  async function copiarConVentana({ pares, opciones }: Copia): Promise<string> {
+    const fechas = pares.flat().sort();
+    let todas: Actividad[];
+    try { todas = await cargarActividades(fechas[0], fechas[fechas.length - 1]); } catch (e) { return mensajeError(e); }
+    const destinos = new Set(pares.map(([, d]) => d));
+    const aBorrar = opciones.limpiar ? todas.filter((a) => destinos.has(a.fecha) && puedeEditarAct(a)) : [];
+    const nuevasDe = pares.flatMap(([o, d]) => todas.filter((a) => a.fecha === o).map((a) => ({ a, d })));
+    setCopiarDesde(null);
+    void hacer(`Copiad${nuevasDe.length === 1 ? 'a 1 actividad' : `as ${nuevasDe.length} actividades`} en ${plural(destinos.size, 'día', 'días')}`, async () => {
+      let fallas = 0; const borradas: string[] = []; const nuevas: string[] = [];
+      for (const a of aBorrar) { const { error } = await supabase.rpc('eliminar_actividad', { p_id: a.id }); if (error) fallas++; else borradas.push(a.id); }
+      for (const { a, d } of nuevasDe) {
+        const { data, error } = await supabase.rpc('guardar_actividad', { p_id: null, p_datos: datosDe(a, d), p_destinos: opciones.personas ? a.destinos : [{ tipo: 'equipo', ref: null }] });
+        if (error) fallas++; else nuevas.push(data as string);
+      }
+      return {
+        fallas,
+        revertir: async () => {
+          let f = 0;
+          for (const id of nuevas) { const r = await supabase.rpc('eliminar_actividad', { p_id: id }); if (r.error) f++; }
+          for (const id of borradas) { const r = await supabase.rpc('restaurar_actividad', { p_id: id }); if (r.error) f++; }
+          return f;
+        },
+      };
+    });
+    return '';
   }
   const copiarSel = () => {
     const xs = acts.filter((a) => sel.includes(a.id));
@@ -249,10 +272,10 @@ export default function Calendario() {
   useEffect(() => {
     const tecla = (e: KeyboardEvent) => {
       const t = (e.target as HTMLElement | null)?.tagName ?? '';
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t) || form || detalle || menu || !puedeCrear) return;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(t) || form || detalle || menu || copiarDesde || diaAbierto || !puedeCrear) return;
       const k = e.key.toLowerCase(); const mod = e.metaKey || e.ctrlKey;
       if (mod && k === 'c' && sel.length) { e.preventDefault(); copiarSel(); }
-      else if (mod && k === 'v' && clip.length) { e.preventDefault(); pegarEn(diaActivo ?? (vista === 'dia' ? iso(ref) : hoy)); }
+      else if (mod && k === 'v' && clip.length) { e.preventDefault(); pegarEn(diaActivo ?? hoy); }
       else if (mod && k === 'z') { e.preventDefault(); void deshacer(); }
       else if ((k === 'delete' || k === 'backspace') && sel.length) { e.preventDefault(); borrarSel(); }
       else if (k === 'enter' && sel.length === 1) { const a = acts.find((x) => x.id === sel[0]); if (a) { e.preventDefault(); setDetalle(a); } }
@@ -284,7 +307,7 @@ export default function Calendario() {
   const tarjeta = (a: Actividad) => {
     const t = TIPOS[a.tipo];
     return (
-      <button key={a.id} type="button" className="card" aria-pressed={sel.includes(a.id)} onClick={(e) => clicActividad(e, a)} onDoubleClick={(e) => { e.stopPropagation(); setDetalle(a); }}
+      <button key={a.id} type="button" className="card" onClick={(e) => { e.stopPropagation(); setDiaAbierto(null); setDetalle(a); }}
         {...pulsacionLarga(a)}
         style={{ width: '100%', border: 0, padding: 14, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 6, background: a.es_partido ? t.bg : '#fff', boxShadow: sel.includes(a.id) ? 'inset 0 0 0 2px #16181D' : undefined }}>
         <span className="row" style={{ justifyContent: 'space-between', width: '100%' }}>
@@ -307,16 +330,8 @@ export default function Calendario() {
           <h1 className="display" style={{ fontSize: 32, marginLeft: 4 }}>{cabecera}</h1>
         </div>
         <div className="row">
-          <div role="group" aria-label="Vista" style={{ display: 'flex', gap: 4, padding: 4, background: '#E9E7E2', borderRadius: 10 }}>
-            {(['mes', 'semana', 'dia'] as Vista[]).map((v) => (
-              <button key={v} type="button" aria-pressed={vista === v} onClick={() => setVista(v)}
-                style={{ height: 36, padding: '0 14px', border: 0, borderRadius: 8, fontWeight: vista === v ? 600 : 500, background: vista === v ? '#fff' : 'transparent', color: vista === v ? 'var(--ink)' : 'var(--muted)' }}>
-                {v === 'mes' ? 'Mes' : v === 'semana' ? 'Semana' : 'Día'}
-              </button>
-            ))}
-          </div>
           <button type="button" className="btn" onClick={() => setSuscribir(true)}>Añadir a mi calendario</button>
-          {puedeExportar && <button type="button" className="btn" onClick={() => nav(`/calendario/exportar?desde=${iso(lunesDe(ref))}`)}>Exportar semana</button>}
+          {puedeExportar && <button type="button" className="btn" onClick={() => nav(`/calendario/exportar?desde=${iso(lunesDe(diaActivo ? desdeIso(diaActivo) : new Date()))}`)}>Exportar semana</button>}
           {puedeCrear && <button type="button" className="btn btn-primary" onClick={() => setForm({ fecha: iso(ref) })}>+ Añadir actividad</button>}
         </div>
       </div>
@@ -333,16 +348,16 @@ export default function Calendario() {
       {error && <p className="notice notice-error" role="alert">{error}</p>}
       {puedeCrear && !tactil && (
         <p className="xs muted solo-escritorio" style={{ margin: '0 0 10px' }}>
-          Clic para elegir (⌘ o Mayús para varias) · doble clic para abrir · arrastrá para mover (con ⌥ Alt apretado, copia) · ⌘C copiar · clic en un día y ⌘V pegar · ⌘Z deshacer · Supr borrar · doble clic en un día vacío para crear.
+          Clic para elegir (⌘ o Mayús para varias) · doble clic para abrir · arrastrá para mover (con ⌥ Alt apretado, copia) · ⌘C copiar · clic en un día y ⌘V pegar · ⌘Z deshacer · Supr borrar · doble clic en un día vacío para crear · ⧉ copia días enteros o un rango.
         </p>
       )}
       {puedeCrear && tactil && <p className="xs muted" style={{ margin: '0 0 10px' }}>Mantené apretada una actividad para moverla, copiarla o borrarla.</p>}
 
-      {vista === 'mes' && (
+      {(
         <div className="card table-wrap">
-          <div style={{ minWidth: 860 }}>
+          <div style={{ minWidth: angosto ? 0 : 860 }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0,1fr))', borderBottom: '1px solid var(--line)' }}>
-              {DIAS_CORTOS.map((d) => <div key={d} style={{ padding: '10px 12px', fontSize: 12, fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{d}</div>)}
+              {DIAS_CORTOS.map((d) => <div key={d} style={{ padding: angosto ? '8px 4px' : '10px 12px', fontSize: 12, textAlign: angosto ? 'center' : undefined, fontWeight: 600, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>{d}</div>)}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0,1fr))' }}>
               {Array.from({ length: 42 }, (_, i) => {
@@ -352,17 +367,34 @@ export default function Calendario() {
                 const otroMes = d.getMonth() !== ref.getMonth();
                 const fuera = lista.some((a) => a.es_partido && a.fuera);
                 return (
-                  <div key={s} onClick={() => (puedeCrear && !tactil ? clicDia(s) : puedeCrear && setForm({ fecha: s }))} onDoubleClick={() => { if (puedeCrear) setForm({ fecha: s }); }}
+                  <div key={s} className={s === hoy ? 'cal-hoy' : undefined}
+                    onClick={() => (angosto || tactil ? setDiaAbierto(s) : puedeCrear ? clicDia(s) : setDiaAbierto(s))} onDoubleClick={() => { if (puedeCrear && !angosto) setForm({ fecha: s }); }}
                     {...destinoDeArrastre(s)}
-                    style={{ minHeight: 118, padding: 6, borderRight: '1px solid var(--line-soft)', borderBottom: '1px solid var(--line-soft)', display: 'flex', flexDirection: 'column', gap: 3, background: soltarEn === s ? '#FDECEE' : otroMes ? '#FAFAF8' : fuera ? '#F2F9EE' : '#fff', cursor: puedeCrear ? 'pointer' : 'default',
-                      boxShadow: soltarEn === s ? 'inset 0 0 0 2px var(--accent)' : diaActivo === s && puedeCrear && !tactil ? 'inset 0 0 0 1.5px #9A9DA4' : undefined }}>
-                    <button type="button" onClick={(e) => { e.stopPropagation(); if (puedeCrear && (e.shiftKey || e.metaKey || e.ctrlKey)) { elegirDias(s); return; } setRef(d); setVista('dia'); }} aria-label={fechaLarga(s)}
-                      style={{ alignSelf: 'flex-start', border: 0, padding: '2px 7px', borderRadius: 12, fontSize: 13, fontWeight: 700, background: s === hoy ? 'var(--accent)' : 'transparent', color: s === hoy ? '#fff' : otroMes ? '#B7B3AA' : 'var(--ink)' }}>
-                      {d.getDate()}
-                    </button>
-                    {lista.slice(0, 3).map((a) => chip(a))}
-                    {lista.length > 3 && (
-                      <button type="button" onClick={(e) => { e.stopPropagation(); setRef(d); setVista('dia'); }} style={{ border: 0, background: 'transparent', textAlign: 'left', padding: '0 6px', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>+{lista.length - 3} más</button>
+                    style={{ minHeight: angosto ? 62 : 118, padding: angosto ? 4 : 6, borderRight: '1px solid var(--line-soft)', borderBottom: '1px solid var(--line-soft)', display: 'flex', flexDirection: 'column', gap: 3, background: soltarEn === s ? '#FDECEE' : otroMes ? '#FAFAF8' : fuera ? '#F2F9EE' : '#fff', cursor: 'pointer', minWidth: 0,
+                      boxShadow: soltarEn === s ? 'inset 0 0 0 2px var(--accent)' : s === hoy ? 'inset 0 0 0 3px var(--accent)' : diaActivo === s && puedeCrear && !tactil ? 'inset 0 0 0 1.5px #9A9DA4' : undefined }}>
+                    <div className="row" style={{ justifyContent: 'space-between', gap: 2, flexWrap: 'nowrap' }}>
+                      <button type="button" onClick={(e) => { e.stopPropagation(); if (puedeCrear && !angosto && (e.shiftKey || e.metaKey || e.ctrlKey)) { elegirDias(s); return; } setDiaAbierto(s); }} aria-label={fechaLarga(s)}
+                        style={{ alignSelf: angosto ? 'center' : 'flex-start', border: 0, padding: '2px 7px', borderRadius: 12, fontSize: 13, fontWeight: 700, background: s === hoy ? 'var(--accent)' : 'transparent', color: s === hoy ? '#fff' : otroMes ? '#B7B3AA' : 'var(--ink)', margin: angosto ? '0 auto' : undefined }}>
+                        {d.getDate()}{s === hoy && !angosto && <span style={{ fontWeight: 600, marginLeft: 4 }}>· Hoy</span>}
+                      </button>
+                      {puedeCrear && !angosto && !tactil && (
+                        <button type="button" className="copiar-dia" aria-label={`Copiar las actividades del ${fechaLarga(s)}`} title="Copiar este día (o un rango) a otros días"
+                          onClick={(e) => { e.stopPropagation(); setDiaActivo(s); setCopiarDesde(s); }}
+                          style={{ border: 0, background: 'transparent', cursor: 'pointer', padding: '0 4px', fontSize: 15, lineHeight: 1, color: 'var(--muted)' }}>⧉</button>
+                      )}
+                    </div>
+                    {angosto ? (
+                      <div className="row" style={{ gap: 3, justifyContent: 'center' }}>
+                        {lista.slice(0, 4).map((a) => <span key={a.id} style={{ width: 7, height: 7, borderRadius: 4, background: TIPOS[a.tipo].color }} />)}
+                        {lista.length > 4 && <span className="xs muted">+{lista.length - 4}</span>}
+                      </div>
+                    ) : (
+                      <>
+                        {lista.slice(0, 3).map((a) => chip(a))}
+                        {lista.length > 3 && (
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setDiaAbierto(s); }} style={{ border: 0, background: 'transparent', textAlign: 'left', padding: '0 6px', fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>+{lista.length - 3} más</button>
+                        )}
+                      </>
                     )}
                   </div>
                 );
@@ -372,37 +404,20 @@ export default function Calendario() {
         </div>
       )}
 
-      {vista === 'semana' && (
-        <div className="stack" style={{ gap: 8, maxWidth: 760 }}>
-          {Array.from({ length: 7 }, (_, i) => {
-            const d = sumarDias(rango.desde, i);
-            const s = iso(d);
-            const lista = deDia(s);
-            return (
-              <section key={s} aria-label={fechaLarga(s)} className="card" onClick={() => { if (puedeCrear && !tactil) clicDia(s); }} onDoubleClick={() => { if (puedeCrear) setForm({ fecha: s }); }}
-                {...destinoDeArrastre(s)}
-                style={{ display: 'flex', gap: 12, padding: '12px 14px', background: soltarEn === s ? '#FDECEE' : undefined,
-                  boxShadow: soltarEn === s || s === hoy ? 'inset 0 0 0 2px var(--accent)' : diaActivo === s && puedeCrear && !tactil ? 'inset 0 0 0 1.5px #9A9DA4' : undefined }}>
-                <div style={{ width: 44, flex: 'none', textAlign: 'center', cursor: puedeCrear ? 'pointer' : undefined }} title={puedeCrear ? 'Mayús + clic: elegir todo el día' : undefined}
-                  onClick={(e) => { if (puedeCrear && (e.shiftKey || e.metaKey || e.ctrlKey)) { e.stopPropagation(); elegirDias(s); } }}>
-                  <div className="xs muted" style={{ fontWeight: 600, textTransform: 'uppercase' }}>{DIAS_CORTOS[diaSemana(d)]}</div>
-                  <div className="display" style={{ fontSize: 26, color: s === hoy ? 'var(--accent)' : undefined }}>{d.getDate()}</div>
-                </div>
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {lista.length === 0 && <span className="small muted" style={{ paddingTop: 6 }}>Sin actividades</span>}
-                  {lista.map((a) => chip(a))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
+      {diaAbierto && (
+        <Dialogo titulo={fechaLarga(diaAbierto)} onCerrar={() => setDiaAbierto(null)} ancho={560}
+          pie={puedeCrear ? <button type="button" className="btn btn-primary" onClick={() => { setForm({ fecha: diaAbierto }); setDiaAbierto(null); }}>+ Añadir actividad</button> : undefined}>
+          {deDia(diaAbierto).length === 0 && <div className="muted">No hay actividades este día.</div>}
+          {deDia(diaAbierto).map((a) => tarjeta(a))}
+        </Dialogo>
       )}
-
-      {vista === 'dia' && (
-        <div className="stack" style={{ gap: 10, maxWidth: 640 }}>
-          {deDia(iso(ref)).length === 0 && <div className="card muted" style={{ padding: 16 }}>No hay actividades este día.</div>}
-          {deDia(iso(ref)).map((a) => tarjeta(a))}
-        </div>
+      {copiarDesde && (
+        <CopiarDias titulo="Copiar actividades" inicio={copiarDesde} onCerrar={() => setCopiarDesde(null)} onCopiar={copiarConVentana}
+          nota="Se copian todas las actividades de esos días (también las de los tipos que tenés ocultos). Se puede deshacer con ⌘Z."
+          opciones={[
+            { clave: 'personas', texto: 'Copiar también a quién va cada actividad', ayuda: 'Si lo destildás, las copias quedan para todo el equipo.', def: true },
+            { clave: 'limpiar', texto: 'Borrar las actividades que ya había en esos días', ayuda: 'Solo las que podés editar.', def: false },
+          ]} />
       )}
 
       {puedeCrear && (trabajando || aviso || sel.length > 0 || pasos.length > 0) && (
@@ -429,7 +444,7 @@ export default function Calendario() {
           puedeEditar={puedeEditarAct(menu)} />
       )}
       {detalle && (
-        <Detalle a={detalle} yo={perfil!.id} nombreDe={nombreDe} grupos={grupos}
+        <Detalle a={detalle} yo={perfil!.id} nombreDe={nombreDe} grupos={grupos} disponibilidad={veDisponibilidad} editaSsh={editaSsh}
           puedeEditar={nivel === 'editar' || (nivel === 'propio' && detalle.creado_por === perfil!.id)}
           onCerrar={() => setDetalle(null)}
           onEditar={() => { setForm({ actividad: detalle }); setDetalle(null); }}
@@ -473,8 +488,8 @@ function etiquetaDestinos(ds: Destino[], nombreDe: (id: string | null) => string
       : ETIQUETAS.find((e) => e.tipo === d.tipo)?.nombre).join(' · ') || 'Nadie';
 }
 
-function Detalle({ a, yo, nombreDe, grupos, puedeEditar, onCerrar, onEditar, onCambio }: {
-  a: Actividad; yo: string; nombreDe: (id: string | null) => string; grupos: Grupo[]; puedeEditar: boolean;
+function Detalle({ a, yo, nombreDe, grupos, puedeEditar, disponibilidad, editaSsh, onCerrar, onEditar, onCambio }: {
+  a: Actividad; yo: string; nombreDe: (id: string | null) => string; grupos: Grupo[]; puedeEditar: boolean; disponibilidad: boolean; editaSsh: boolean;
   onCerrar: () => void; onEditar: () => void; onCambio: () => void;
 }) {
   const t = TIPOS[a.tipo];
@@ -534,6 +549,12 @@ function Detalle({ a, yo, nombreDe, grupos, puedeEditar, onCerrar, onEditar, onC
             </div>
           ))}
         </div>
+      )}
+      {disponibilidad && a.tipo === 'deportiva' && (
+        <details className="disp-en-actividad" style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '8px 14px' }}>
+          <summary style={{ cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>Disponibilidad de los jugadores <span className="xs muted" style={{ fontWeight: 400 }}>· solo staff</span></summary>
+          <div style={{ marginTop: 10 }}><TableroDisponibilidad fecha={a.fecha} edita={editaSsh} compacto /></div>
+        </details>
       )}
       <Adjuntos actividad={a} puedeEditar={puedeEditar} />
       {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}

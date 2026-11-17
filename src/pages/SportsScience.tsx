@@ -7,7 +7,8 @@ import { COLORES_5, PREGUNTAS, RPE, TEXTO_5, bienDe, colorRpe, type Pregunta } f
 import Dialogo from '../components/Dialogo';
 import { useSearchParams } from 'react-router-dom';
 import PestanaAlertas, { useAlertasRecientes } from './ssh/Alertas';
-import PestanaFisio, { PillEstado, parteVigente, usePartes } from './ssh/Fisio';
+import PestanaFisio, { PillEstado, usePartes, vigentes } from './ssh/Fisio';
+import PestanaDisponibilidad from './ssh/Disponibilidad';
 
 type Fila = {
   perfil_id: string; nombre: string; sueno: number | null; fatiga: number | null; estres: number | null; dolor: number | null;
@@ -45,8 +46,8 @@ export default function SportsScience() {
 }
 
 function VistaStaff({ edita }: { edita: boolean }) {
-  type Tab = 'dia' | 'wellness' | 'sesion' | 'semana' | 'perfil' | 'fisio' | 'alertas';
-  const tabs = [['dia', 'Día'], ['wellness', 'Wellness'], ['sesion', 'Sesión'], ['semana', 'Semana'], ['perfil', 'Jugador'], ['fisio', 'Fisio'], ['alertas', 'Alertas']] as const;
+  type Tab = 'dia' | 'disponibilidad' | 'wellness' | 'sesion' | 'semana' | 'perfil' | 'fisio' | 'alertas';
+  const tabs = [['dia', 'Día'], ['disponibilidad', 'Disponibilidad'], ['wellness', 'Wellness'], ['sesion', 'Sesión'], ['semana', 'Semana'], ['perfil', 'Jugador'], ['fisio', 'Fisio'], ['alertas', 'Alertas']] as const;
   const [params, setParams] = useSearchParams();
   const pedida = params.get('pestana') as Tab | null;   // el aviso del celular abre «Alertas»
   const [tab, setTab0] = useState<Tab>(pedida && tabs.some(([k]) => k === pedida) ? pedida : 'dia');
@@ -62,6 +63,7 @@ function VistaStaff({ edita }: { edita: boolean }) {
       {tab === 'sesion' && <PestanaSesion />}
       {tab === 'semana' && <PestanaSemana />}
       {tab === 'perfil' && <PestanaPerfil />}
+      {tab === 'disponibilidad' && <PestanaDisponibilidad edita={edita} />}
       {tab === 'fisio' && <PestanaFisio edita={edita} />}
       {tab === 'alertas' && <PestanaAlertas edita={edita} />}
     </div>
@@ -78,8 +80,8 @@ function VistaDia({ edita }: { edita: boolean }) {
   const { lista: alertas } = useAlertasRecientes(14);
   const alertasDe = (perfil: string) => alertas.filter((a) => a.perfil_id === perfil && a.fecha === fecha);
   // Partes de fisio que valen para este día (del día, o con el rechequeo todavía por delante)
-  const { lista: partes } = usePartes(iso(sumarDias(desdeIso(fecha), -60)));
-  const parteDe = (perfil: string) => (partes ?? []).find((p) => p.perfil_id === perfil && parteVigente(p, fecha));
+  const { lista: partes } = usePartes(iso(sumarDias(desdeIso(fecha), -365)));
+  const parteDe = (perfil: string) => vigentes(partes ?? [], fecha).find((p) => p.perfil_id === perfil);
   // Asistencia: solo se guardan las faltas
   const [faltas, setFaltas] = useState<Set<string>>(new Set());
   const cargarFaltas = useCallback(async () => {

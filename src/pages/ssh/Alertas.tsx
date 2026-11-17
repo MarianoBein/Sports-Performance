@@ -11,7 +11,7 @@ import Dialogo from '../../components/Dialogo';
 export type Condicion = { metrica: MetricaA; comparador: Comp; referencia: 'valor' | 'media'; valor: number };
 type MetricaA = 'sueno' | 'fatiga' | 'estres' | 'dolor' | 'preparacion' | 'rpe';
 type Comp = 'menor' | 'menor_igual' | 'mayor' | 'mayor_igual';
-export type Regla = { id: string; nombre: string; activa: boolean; modo: 'todas' | 'alguna'; dias: number; condiciones: Condicion[] };
+export type Regla = { id: string; nombre: string; activa: boolean; modo: 'todas' | 'alguna'; dias: number; condiciones: Condicion[]; solo_con_dato?: boolean };
 export type Disparada = { id: string; regla_id: string; perfil_id: string; fecha: string; detalle: string; creado_en: string };
 
 const METRICAS: [MetricaA, string, string][] = [
@@ -35,7 +35,7 @@ export function textoCondicion(c: Condicion) {
 }
 export function textoRegla(r: Regla) {
   const conds = r.condiciones.map(textoCondicion).join(r.modo === 'todas' ? ' y ' : ' o ');
-  return `${conds}${r.dias > 1 ? `, ${r.dias} días seguidos` : ''}`;
+  return `${conds}${r.dias > 1 ? (r.solo_con_dato ? `, ${r.dias} veces seguidas que respondió` : `, ${r.dias} días seguidos`) : ''}`;
 }
 
 export const EJEMPLOS: Omit<Regla, 'id'>[] = [
@@ -46,7 +46,7 @@ export const EJEMPLOS: Omit<Regla, 'id'>[] = [
   { nombre: 'Preparación baja', activa: true, modo: 'todas', dias: 2, condiciones: [
     { metrica: 'preparacion', comparador: 'menor', referencia: 'media', valor: -0.75 },
   ] },
-  { nombre: 'RPE muy alto', activa: true, modo: 'todas', dias: 2, condiciones: [
+  { nombre: 'RPE muy alto', activa: true, modo: 'todas', dias: 2, solo_con_dato: true, condiciones: [
     { metrica: 'rpe', comparador: 'mayor_igual', referencia: 'valor', valor: 9 },
   ] },
 ];
@@ -71,7 +71,7 @@ export default function PestanaAlertas({ edita }: { edita: boolean }) {
   const [borrando, setBorrando] = useState<Regla | null>(null);
 
   const cargar = useCallback(async () => {
-    const { data, error } = await supabase.from('alertas_reglas').select('id,nombre,activa,modo,dias,condiciones').order('creado_en');
+    const { data, error } = await supabase.from('alertas_reglas').select('id,nombre,activa,modo,dias,condiciones,solo_con_dato').order('creado_en');
     if (error) { setError(mensajeError(error)); setReglas([]); return; }
     setReglas((data as Regla[]) ?? []);
   }, []);
@@ -79,7 +79,7 @@ export default function PestanaAlertas({ edita }: { edita: boolean }) {
 
   async function guardar(r: Regla | Omit<Regla, 'id'>) {
     const { error } = await supabase.rpc('guardar_alerta', {
-      p_id: 'id' in r ? r.id : null, p_nombre: r.nombre, p_activa: r.activa, p_modo: r.modo, p_dias: r.dias, p_condiciones: r.condiciones,
+      p_id: 'id' in r ? r.id : null, p_nombre: r.nombre, p_activa: r.activa, p_modo: r.modo, p_dias: r.dias, p_condiciones: r.condiciones, p_solo_con_dato: r.dias > 1 && !!r.solo_con_dato,
     });
     if (error) return mensajeError(error);
     await cargar();
@@ -233,10 +233,16 @@ function EditorRegla({ inicial, onCerrar, onGuardar }: { inicial: Regla | Omit<R
         )}
         <label className="field"><span>Días seguidos</span>
           <select id="regla-dias" className="select" value={r.dias} onChange={(e) => setR({ ...r, dias: Number(e.target.value) })}>
-            {[1, 2, 3, 4, 5, 6, 7].map((d) => <option key={d} value={d}>{d === 1 ? 'Solo hoy' : `${d} días seguidos`}</option>)}
+            {[1, 2, 3, 4, 5, 6, 7].map((d) => <option key={d} value={d}>{d === 1 ? 'Solo hoy' : `${d} ${r.solo_con_dato ? 'veces' : 'días'} seguid${r.solo_con_dato ? 'as' : 'os'}`}</option>)}
           </select>
         </label>
       </div>
+      {r.dias > 1 && (
+        <label className="row small" style={{ gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+          <input id="regla-solo-dato" type="checkbox" checked={!!r.solo_con_dato} onChange={(e) => setR({ ...r, solo_con_dato: e.target.checked })} style={{ marginTop: 3 }} />
+          <span>Saltear los días sin respuesta <span className="muted">— para el RPE: si entrenan martes y jueves, el miércoles sin entreno no corta la racha. El wellness, que se contesta todos los días, va mejor sin tildar.</span></span>
+        </label>
+      )}
       <p className="small" style={{ margin: 0, padding: '8px 10px', borderRadius: 8, background: '#EEF3FD' }}>
         <strong>Se lee así:</strong> {textoRegla(r as Regla) || '—'}.
         {r.condiciones.some((c) => c.referencia === 'media') && <span className="muted"> «Su media» es la del propio jugador en los 28 días anteriores (hacen falta al menos 5 respuestas).</span>}
