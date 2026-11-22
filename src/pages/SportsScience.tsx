@@ -8,7 +8,7 @@ import Dialogo from '../components/Dialogo';
 import { useSearchParams } from 'react-router-dom';
 import PestanaAlertas, { useAlertasRecientes } from './ssh/Alertas';
 import PestanaFisio, { PillEstado, usePartes, vigentes } from './ssh/Fisio';
-import PestanaDisponibilidad from './ssh/Disponibilidad';
+import PestanaDashboard from './ssh/Dashboard';
 
 type Fila = {
   perfil_id: string; nombre: string; sueno: number | null; fatiga: number | null; estres: number | null; dolor: number | null;
@@ -46,24 +46,36 @@ export default function SportsScience() {
 }
 
 function VistaStaff({ edita }: { edita: boolean }) {
-  type Tab = 'dia' | 'disponibilidad' | 'wellness' | 'sesion' | 'semana' | 'perfil' | 'fisio' | 'alertas';
-  const tabs = [['dia', 'Día'], ['disponibilidad', 'Disponibilidad'], ['wellness', 'Wellness'], ['sesion', 'Sesión'], ['semana', 'Semana'], ['perfil', 'Jugador'], ['fisio', 'Fisio'], ['alertas', 'Alertas']] as const;
+  type Tab = 'dashboard' | 'dia' | 'fisio' | 'alertas' | 'wellness' | 'sesion' | 'semana' | 'perfil';
+  const tabs = [['dashboard', 'Dashboard'], ['dia', 'Día'], ['fisio', 'Fisio'], ['alertas', '⚙ Alertas']] as const;
+  // Vistas anteriores: quedan a mano hasta que el Dashboard las reemplace del todo
+  const viejas = [['wellness', 'Wellness'], ['sesion', 'Sesión'], ['semana', 'Semana'], ['perfil', 'Jugador']] as const;
   const [params, setParams] = useSearchParams();
-  const pedida = params.get('pestana') as Tab | null;   // el aviso del celular abre «Alertas»
-  const [tab, setTab0] = useState<Tab>(pedida && tabs.some(([k]) => k === pedida) ? pedida : 'dia');
+  const pedida = params.get('pestana') as Tab | 'disponibilidad' | null;   // el aviso del celular abre «Alertas»
+  const valida = (t: string | null): t is Tab => !!t && [...tabs, ...viejas].some(([k]) => k === t);
+  const [tab, setTab0] = useState<Tab>(valida(pedida) ? pedida : 'dashboard');
   const setTab = (t: Tab) => { setTab0(t); if (params.has('pestana')) setParams({}, { replace: true }); };
+  const esVieja = viejas.some(([k]) => k === tab);
   return (
     <div className="stack">
       <h1 className="display" style={{ fontSize: 38 }}>Sports Science Hub</h1>
-      <div className="tabs" role="tablist" aria-label="Secciones">
-        {tabs.map(([k, t]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{t}</button>)}
+      <div className="row" style={{ justifyContent: 'space-between', gap: 10 }}>
+        <div className="tabs" role="tablist" aria-label="Secciones">
+          {tabs.map(([k, t]) => <button key={k} type="button" role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{t}</button>)}
+        </div>
+        <label className="row small muted" style={{ gap: 6 }}>Vistas anteriores
+          <select id="vistas-viejas" className="select" style={{ height: 36, width: 'auto' }} value={esVieja ? tab : ''} onChange={(e) => e.target.value && setTab(e.target.value as Tab)}>
+            <option value="">—</option>
+            {viejas.map(([k, t]) => <option key={k} value={k}>{t}</option>)}
+          </select>
+        </label>
       </div>
+      {tab === 'dashboard' && <PestanaDashboard edita={edita} />}
       {tab === 'dia' && <VistaDia edita={edita} />}
       {tab === 'wellness' && <PestanaWellness />}
       {tab === 'sesion' && <PestanaSesion />}
       {tab === 'semana' && <PestanaSemana />}
       {tab === 'perfil' && <PestanaPerfil />}
-      {tab === 'disponibilidad' && <PestanaDisponibilidad edita={edita} />}
       {tab === 'fisio' && <PestanaFisio edita={edita} />}
       {tab === 'alertas' && <PestanaAlertas edita={edita} />}
     </div>
