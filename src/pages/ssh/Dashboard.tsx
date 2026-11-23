@@ -173,7 +173,6 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
 }) {
   // El «hoy» del dashboard es el último día del período
   const dia = hasta < hoy ? hasta : hoy;
-  const ayer = iso(sumarDias(desdeIso(dia), -1));
   const antes = (n: number, f = dia) => Array.from({ length: n }, (_, i) => iso(sumarDias(desdeIso(f), -(i + 1))));
   const media = (p: string, k: Comp | 'preparacion') => { const xs = antes(ventana).map((f) => bueno(datos.dia(p, f), k)).filter((x): x is number => x != null); return xs.length >= 3 ? xs.reduce((a, b) => a + b, 0) / xs.length : null; };
   const suma = (p: string, fechas: string[]) => { const xs = fechas.map((f) => datos.dia(p, f).esfuerzo).filter((x): x is number => x != null); return xs.length ? xs.reduce((a, b) => a + b, 0) : null; };
@@ -184,7 +183,7 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
     const carga7 = suma(j.id, [dia, ...antes(6)]);
     const carga28 = suma(j.id, [dia, ...antes(27)]);
     const acwr = carga7 != null && carga28 ? carga7 / (carga28 / 4) : null;
-    return { j, prep: { hoy: bueno(d, 'preparacion'), media: media(j.id, 'preparacion') }, comps, rpeAyer: datos.dia(j.id, ayer).rpe, carga7, carga28, acwr, aplica: d.wAplica };
+    return { j, prep: { hoy: bueno(d, 'preparacion'), media: media(j.id, 'preparacion') }, comps, rpeHoy: d.rpe, esfuerzoHoy: d.esfuerzo, carga7, carga28, acwr, aplica: d.wAplica };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [datos, elegidos, dia, ventana]);
 
@@ -210,7 +209,7 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
   const mirar = fila.map((f) => {
     const chips: Chip[] = []; let peor = 0;
     f.comps.forEach((c, i) => { if (c.hoy != null && c.media != null && c.hoy - c.media <= -0.5) { chips.push({ texto: `${COMPONENTES[i].nombre} ${fmt(c.hoy, 0)} (media ${fmt(c.media, 1)})`, muy: c.hoy - c.media <= -1 }); peor = Math.min(peor, c.hoy - c.media); } });
-    if (f.rpeAyer != null && f.rpeAyer >= 9) { chips.push({ texto: `RPE ${f.rpeAyer} ayer`, muy: true }); peor = Math.min(peor, -1); }
+    if (f.rpeHoy != null && f.rpeHoy >= 9) { chips.push({ texto: `RPE ${f.rpeHoy} ${dia === hoy ? 'hoy' : 'ese día'}`, muy: true }); peor = Math.min(peor, -1); }
     const als = alertasHoy.filter((a) => a.perfil_id === f.j.id).map((a) => a.detalle.split(': ').slice(1).join(': ') || a.detalle);
     return { j: f.j, chips, als, peor: als.length ? peor - 0.5 : peor };
   }).filter((m) => m.chips.length || m.als.length).sort((a, b) => a.peor - b.peor).slice(0, 8);
@@ -345,7 +344,7 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
             <thead><tr>
               <th>Jugador</th><th style={{ textAlign: 'center', color: 'var(--ink)' }}>Preparación</th>
               {COMPONENTES.map((c) => <th key={c.k} style={{ textAlign: 'center' }}>{c.nombre}</th>)}
-              <th style={{ textAlign: 'center' }}>RPE ayer</th><th style={{ textAlign: 'center', color: 'var(--ink)' }}>Carga 7 días</th><th style={{ textAlign: 'center' }}>Estado</th>
+              <th style={{ textAlign: 'center' }} title="RPE × minutos del día; se llena a medida que cargan el RPE">Esfuerzo</th><th style={{ textAlign: 'center', color: 'var(--ink)' }}>Carga 7 días</th><th style={{ textAlign: 'center' }}>Estado</th>
             </tr></thead>
             <tbody>
               {fila.map((f) => {
@@ -357,7 +356,7 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
                     <th scope="row" style={{ whiteSpace: 'nowrap' }}><button type="button" onClick={() => soloUno(f.j.id)} title="Ver solo a este jugador" style={{ border: 0, background: 'none', padding: 0, font: 'inherit', fontWeight: 600, cursor: 'pointer' }}>{f.j.nombre}</button></th>
                     {celda(fmt(f.prep.hoy, 1), tono(f.prep.hoy != null && f.prep.media != null ? f.prep.hoy - f.prep.media : f.prep.hoy == null ? null : 0), true)}
                     {f.comps.map((c, i) => <td key={i} style={{ textAlign: 'center', fontWeight: 600, background: tono(c.hoy != null && c.media != null ? c.hoy - c.media : c.hoy == null ? null : 0)[0], color: tono(c.hoy != null && c.media != null ? c.hoy - c.media : c.hoy == null ? null : 0)[1], borderRadius: 8 }}>{fmt(c.hoy, 0)}</td>)}
-                    {celda(f.rpeAyer == null ? '—' : String(f.rpeAyer), tono(f.rpeAyer == null ? null : f.rpeAyer >= 9 ? -1 : 0))}
+                    {celda(fmt(f.esfuerzoHoy, 0), tono(f.esfuerzoHoy == null ? null : f.rpeHoy != null && f.rpeHoy >= 9 ? -1 : 0))}
                     {celda(fmt(f.carga7, 0), tono(f.carga7 == null ? null : cargaAlta ? -0.6 : 0), true)}
                     <td style={{ textAlign: 'center' }}><span className="pill" style={{ fontSize: 12, background: e === 'fuera' ? '#FBE3E6' : e === 'adaptado' ? '#FDF1E3' : '#EEF3FD', color: e === 'fuera' ? '#8E1022' : e === 'adaptado' ? '#8A4B00' : '#1D3F8F' }}>{e === 'fuera' ? 'Fuera' : e === 'adaptado' ? 'Adaptado' : 'Disponible'}</span></td>
                   </tr>
@@ -366,7 +365,7 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
             </tbody>
           </table>
         </div>
-        <span className="xs muted">«—» = no contestó: no cuenta como cero. Todas las escalas de wellness van de 1 a 5 con 5 = mejor. La carga de 7 días se marca cuando supera en 30 % su promedio semanal de las últimas 4 semanas. Tocá un nombre para ver solo a ese jugador.</span>
+        <span className="xs muted">«—» = no contestó: no cuenta como cero. Esfuerzo = RPE × minutos del día, se va llenando a medida que cargan el RPE (en rojo si el RPE es 9 o más). Todas las escalas de wellness van de 1 a 5 con 5 = mejor. La carga de 7 días se marca cuando supera en 30 % su promedio semanal de las últimas 4 semanas. Tocá un nombre para ver solo a ese jugador.</span>
       </section>
     </>
   );
