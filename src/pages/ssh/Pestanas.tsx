@@ -44,7 +44,7 @@ export function PestanaWellness() {
     <div className="stack">
       <Cabecera periodo={periodo} setPeriodo={setPeriodo} datos={datos} filtro={filtro} setFiltro={setFiltro} />
       {datos && <Comparador datos={datos} dias={dias} metricas={['preparacion', 'sueno', 'fatiga', 'estres', 'dolor']} etiquetas={dias.map((f) => etiquetaMD(f, datos.partidos))} />}
-      <Leyenda extra={<span>Cada valor se compara con la media de los últimos {VENTANA_MOVIL} días del propio jugador. Sueño: 5 = bien; fatiga, estrés y dolor: 5 = mal.</span>} />
+      <Leyenda extra={<span>Cada valor se compara con la media de los últimos {VENTANA_MOVIL} días del propio jugador. Todo de 1 a 5 con 5 = mejor (sueño bueno, fresco, relajado, sin dolor).</span>} />
       {!datos ? <Cargando error={error} /> : filtrar(datos, filtro).map((j) => {
         const aplica = dias.filter((f) => datos.dia(j.id, f).wAplica);
         const con = aplica.filter((f) => datos.dia(j.id, f).preparacion != null);

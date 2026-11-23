@@ -9,8 +9,8 @@ const NOMBRE_COMP: Record<MetricaComp, string> = {
   preparacion: 'Preparación', sueno: 'Sueño', fatiga: 'Fatiga', estres: 'Estrés', dolor: 'Dolor muscular', rpe: 'RPE', esfuerzo: 'Esfuerzo',
 };
 const AYUDA: Record<MetricaComp, string> = {
-  preparacion: 'de 1 a 5 · 5 = mejor', sueno: '5 = durmió bien', fatiga: '5 = muy cansado', estres: '5 = muy estresado',
-  dolor: '5 = mucho dolor', rpe: 'de 0 a 10', esfuerzo: 'RPE × minutos',
+  preparacion: 'de 1 a 5 · 5 = mejor', sueno: '5 = durmió bien', fatiga: '5 = fresco', estres: '5 = relajado',
+  dolor: '5 = sin dolor', rpe: 'de 0 a 10', esfuerzo: 'RPE × minutos',
 };
 const TOPE: Partial<Record<MetricaComp, number>> = { preparacion: 5, sueno: 5, fatiga: 5, estres: 5, dolor: 5, rpe: 10 };
 const DEC: Record<MetricaComp, number> = { preparacion: 2, sueno: 0, fatiga: 0, estres: 0, dolor: 0, rpe: 0, esfuerzo: 0 };

@@ -17,12 +17,19 @@ export type Disparada = { id: string; regla_id: string; perfil_id: string; fecha
 const METRICAS: [MetricaA, string, string][] = [
   ['sueno', 'Sueño', '1 a 5 · 5 = durmió bien'],
   ['preparacion', 'Preparación', '1 a 5 · 5 = mejor'],
-  ['fatiga', 'Fatiga', '1 a 5 · 5 = muy cansado'],
-  ['estres', 'Estrés', '1 a 5 · 5 = muy estresado'],
-  ['dolor', 'Dolor muscular', '1 a 5 · 5 = mucho dolor'],
+  ['fatiga', 'Fatiga', '1 a 5 · 5 = muy fresco'],
+  ['estres', 'Estrés', '1 a 5 · 5 = muy relajado'],
+  ['dolor', 'Dolor muscular', '1 a 5 · 5 = nada de dolor'],
   ['rpe', 'RPE', '0 a 10'],
 ];
 const COMPS: [Comp, string][] = [['menor', 'menor que'], ['menor_igual', 'menor o igual que'], ['mayor', 'mayor que'], ['mayor_igual', 'mayor o igual que']];
+// En pantalla todo el wellness va con 5 = mejor. La base guarda fatiga, estrés y dolor con 5 = peor,
+// así que esas condiciones se «espejan» al leer y al guardar (hacerlo dos veces deja todo igual).
+const DADA_VUELTA: Record<Comp, Comp> = { menor: 'mayor', menor_igual: 'mayor_igual', mayor: 'menor', mayor_igual: 'menor_igual' };
+const espejo = (c: Condicion): Condicion => (c.metrica === 'fatiga' || c.metrica === 'estres' || c.metrica === 'dolor')
+  ? { ...c, comparador: DADA_VUELTA[c.comparador], valor: c.referencia === 'media' ? (c.valor === 0 ? 0 : -c.valor) : 6 - c.valor }
+  : c;
+const espejarRegla = <T extends { condiciones: Condicion[] }>(r: T): T => ({ ...r, condiciones: r.condiciones.map(espejo) });
 const nombreM = (m: MetricaA) => METRICAS.find((x) => x[0] === m)?.[1] ?? m;
 const signo: Record<Comp, string> = { menor: '<', menor_igual: '≤', mayor: '>', mayor_igual: '≥' };
 const num = (v: number) => String(v).replace('.', ',');
@@ -73,13 +80,13 @@ export default function PestanaAlertas({ edita }: { edita: boolean }) {
   const cargar = useCallback(async () => {
     const { data, error } = await supabase.from('alertas_reglas').select('id,nombre,activa,modo,dias,condiciones,solo_con_dato').order('creado_en');
     if (error) { setError(mensajeError(error)); setReglas([]); return; }
-    setReglas((data as Regla[]) ?? []);
+    setReglas(((data as Regla[]) ?? []).map(espejarRegla));
   }, []);
   useEffect(() => { cargar(); }, [cargar]);
 
   async function guardar(r: Regla | Omit<Regla, 'id'>) {
     const { error } = await supabase.rpc('guardar_alerta', {
-      p_id: 'id' in r ? r.id : null, p_nombre: r.nombre, p_activa: r.activa, p_modo: r.modo, p_dias: r.dias, p_condiciones: r.condiciones, p_solo_con_dato: r.dias > 1 && !!r.solo_con_dato,
+      p_id: 'id' in r ? r.id : null, p_nombre: r.nombre, p_activa: r.activa, p_modo: r.modo, p_dias: r.dias, p_condiciones: espejarRegla(r).condiciones, p_solo_con_dato: r.dias > 1 && !!r.solo_con_dato,
     });
     if (error) return mensajeError(error);
     await cargar();

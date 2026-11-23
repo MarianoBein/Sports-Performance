@@ -22,7 +22,7 @@ const fmt = (n: number | null, d = 1) => (n === null || n === undefined ? '—' 
 function Celda({ clave, valor }: { clave: Pregunta['clave']; valor: number | null }) {
   if (valor === null) return <span className="muted">—</span>;
   const b = bienDe(clave, valor);
-  return <span className="pill" style={{ minWidth: 32, textAlign: 'center', background: COLORES_5[b - 1], color: TEXTO_5[b - 1] }}>{valor}</span>;
+  return <span className="pill" style={{ minWidth: 32, textAlign: 'center', background: COLORES_5[b - 1], color: TEXTO_5[b - 1] }}>{b}</span>;
 }
 
 function MinutosInput({ valor, onGuardar, etiqueta }: { valor: number | null; onGuardar: (m: number | null) => void; etiqueta: string }) {
@@ -289,7 +289,7 @@ function VistaDia({ edita }: { edita: boolean }) {
         </table>
       </div>
       <p className="xs muted" style={{ margin: 0 }}>
-        Sueño: 5 = dormí muy bien. Fatiga, estrés y dolor muscular: 5 = muy mal. El color siempre indica si está bien (verde) o mal (rojo).
+        Todo de 1 a 5 con 5 = mejor: sueño 5 = durmió muy bien, fatiga 5 = muy fresco, estrés 5 = muy relajado, dolor 5 = nada de dolor. Verde = bien, rojo = mal.
         Preparación = promedio de las cuatro con el mismo sentido (5 = mejor). «—» = sin respuesta; nunca cuenta como cero. «No aplica» no cuenta como faltante.
         {edita && ' «Corregir» cambia o borra lo que respondió un jugador ese día; queda anotado en el registro de cambios.'}
       </p>
@@ -331,7 +331,7 @@ function DialogoCorregir({ fila, fecha, onCerrar, onListo }: { fila: Fila; fecha
         <button type="button" className="btn btn-primary" disabled={ocupado} onClick={guardar}>Guardar</button>
       </>}>
       <div className="stack" style={{ gap: 14 }}>
-        <p className="small muted" style={{ margin: 0 }}>{fechaLarga(fecha)}. Sueño: 5 = durmió muy bien. Fatiga, estrés y dolor: 5 = muy mal (igual que en la tabla).</p>
+        <p className="small muted" style={{ margin: 0 }}>{fechaLarga(fecha)}. Todo de 1 a 5 con 5 = mejor, igual que en la tabla y que lo que ve el jugador.</p>
 
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <strong>Wellness</strong>
@@ -342,12 +342,13 @@ function DialogoCorregir({ fila, fecha, onCerrar, onListo }: { fila: Fila; fecha
           <div key={q.clave} className="stack" style={{ gap: 6 }}>
             <span className="small" style={{ fontWeight: 600 }}>{q.titulo}{w[q.clave] !== null && <span className="muted" style={{ fontWeight: 400 }}> · {q.frases[bienDe(q.clave, w[q.clave] as number) - 1]}</span>}</span>
             <div className="row" role="group" aria-label={q.titulo} style={{ gap: 6 }}>
-              {[1, 2, 3, 4, 5].map((v) => {
-                const on = w[q.clave] === v; const b = bienDe(q.clave, v);
+              {[1, 2, 3, 4, 5].map((b) => {
+                const v = bienDe(q.clave, b);   // el botón muestra 5 = mejor; se guarda como siempre
+                const on = w[q.clave] === v;
                 return (
-                  <button key={v} type="button" aria-pressed={on} onClick={() => setW({ ...w, [q.clave]: v })}
+                  <button key={b} type="button" aria-pressed={on} onClick={() => setW({ ...w, [q.clave]: v })}
                     style={{ width: 44, height: 38, borderRadius: 10, fontWeight: 700, cursor: 'pointer', border: on ? '2px solid #16181D' : '1.5px solid var(--field)',
-                      background: on ? COLORES_5[b - 1] : 'var(--card)', color: on ? TEXTO_5[b - 1] : 'var(--ink)' }}>{v}</button>
+                      background: on ? COLORES_5[b - 1] : 'var(--card)', color: on ? TEXTO_5[b - 1] : 'var(--ink)' }}>{b}</button>
                 );
               })}
             </div>

@@ -10,7 +10,7 @@ import Dialogo from '../../components/Dialogo';
 // Dashboard del Sports Science Hub: una sola vista que junta Wellness, Sesión, Semana y Jugador.
 // · Se filtra por jugadores (casillas: todos, grupos o nombres) y todo se recalcula con esa selección.
 // · Cada valor se compara con la media del propio jugador en los últimos N días (7 por defecto).
-// · Escala «buena» para todo el wellness: 5 = mejor (fatiga, estrés y dolor se guardan al revés).
+// · Escala del staff para todo el wellness: 5 = mejor.
 // · Un dato que falta nunca cuenta como cero.
 
 type Comp = 'sueno' | 'fatiga' | 'estres' | 'dolor';
@@ -20,12 +20,8 @@ const COMPONENTES: { k: Comp; nombre: string; escala: string }[] = [
   { k: 'estres', nombre: 'Estrés', escala: '5 = relajado' },
   { k: 'dolor', nombre: 'Dolor', escala: '5 = sin dolor' },
 ];
-// Valor «bueno» (5 = mejor) de cada componente
-const bueno = (d: Dia, k: Comp | 'preparacion'): number | null => {
-  const v = d[k];
-  if (v == null) return null;
-  return k === 'fatiga' || k === 'estres' || k === 'dolor' ? 6 - v : v;
-};
+// lib/carga ya entrega todo el wellness con 5 = mejor
+const bueno = (d: Dia, k: Comp | 'preparacion'): number | null => d[k];
 const prom = (xs: (number | null | undefined)[]) => { const v = xs.filter((x): x is number => x != null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
 const COLORES = ['#1D5BD8', '#E07A10', '#2A9D8F', '#9B3FB5', '#D23C77', '#8C5A2B', '#16307A', '#6E7F10', '#0C8DB0', '#3F444D'];
 const ddmm = (f: string) => { const d = desdeIso(f); return `${d.getDate()}/${d.getMonth() + 1}`; };

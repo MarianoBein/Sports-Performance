@@ -24,14 +24,17 @@ export const NOMBRE: Record<Metrica, string> = {
 };
 
 // Sentido de cada métrica: qué es «peor». Sueño y preparación: más es mejor.
-// Fatiga, estrés y dolor (guardados 5 = mal): más es peor. Cargas: más es «rojo».
+// Wellness: todo en la escala del staff, 5 = mejor (fatiga, estrés y dolor se dan vuelta al cargar). Cargas: más es «rojo».
 const SENTIDO: Record<Metrica, 'alto-bueno' | 'alto-malo'> = {
-  preparacion: 'alto-bueno', sueno: 'alto-bueno', fatiga: 'alto-malo', estres: 'alto-malo', dolor: 'alto-malo', esfuerzo: 'alto-malo',
+  preparacion: 'alto-bueno', sueno: 'alto-bueno', fatiga: 'alto-bueno', estres: 'alto-bueno', dolor: 'alto-bueno', esfuerzo: 'alto-malo',
 };
 
 export const VENTANA_MOVIL = 28;  // días de la media móvil
 export const VENTANA_MD = 90;     // días hacia atrás para la media por tipo de día
 export const MINIMO = 8;          // con menos registros, «pocos datos»
+
+// Fatiga, estrés y dolor se guardan 5 = peor: para el staff se muestran dados vuelta (5 = mejor).
+const inv = (v: number | null | undefined) => (v == null ? null : 6 - v);
 
 const VACIO: Dia = { preparacion: null, sueno: null, fatiga: null, estres: null, dolor: null, rpe: null, minutos: null, esfuerzo: null, wAplica: true, rAplica: true };
 
@@ -76,7 +79,7 @@ export async function cargarDatos(desde: string, hasta: string, modos: { wellnes
     const rpe = R.get(key) ?? null;
     const minutos = MJ.get(key) ?? ME.get(f) ?? null;
     const d: Dia = wx || rpe != null || minutos != null ? {
-      preparacion: wx ? Number(wx.preparacion) : null, sueno: wx?.sueno ?? null, fatiga: wx?.fatiga ?? null, estres: wx?.estres ?? null, dolor: wx?.dolor ?? null,
+      preparacion: wx ? Number(wx.preparacion) : null, sueno: wx?.sueno ?? null, fatiga: inv(wx?.fatiga), estres: inv(wx?.estres), dolor: inv(wx?.dolor),
       rpe, minutos, esfuerzo: rpe != null && minutos != null ? rpe * minutos : null,
       wAplica: aplica('wellness', p, f, modos.wellness), rAplica: aplica('rpe', p, f, modos.rpe),
     } : { ...VACIO, wAplica: aplica('wellness', p, f, modos.wellness), rAplica: aplica('rpe', p, f, modos.rpe) };
