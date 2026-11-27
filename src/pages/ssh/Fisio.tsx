@@ -11,10 +11,12 @@ export type Estado = 'si' | 'no' | 'restricciones';
 export type Parte = {
   id: string; perfil_id: string | null; nombre_libre: string | null; fecha: string; motivo: string; entrena: Estado; pesas: Estado;
   restricciones: string | null; fecha_rechequeo: string | null; fecha_alta: string | null; creado_en: string;
+  juega_partido?: boolean | null;   // null = no se marcó (cuenta como «sin partido»)
 };
 export const TXT_ESTADO: Record<Estado, string> = { si: 'Sí', no: 'No', restricciones: 'Con restricciones' };
 export const COLOR_ESTADO: Record<Estado, [string, string]> = { si: ['#E3F2EA', '#1F6B45'], no: ['#FBE3E6', '#8E1022'], restricciones: ['#FDF1E3', '#8A4B00'] };
 const COLS = 'id,perfil_id,nombre_libre,fecha,motivo,entrena,pesas,restricciones,fecha_rechequeo,fecha_alta,creado_en';
+const COLS_031 = `${COLS},juega_partido`;   // juega_partido llega con el 031
 const LIBRE = '__libre';
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 const ddmm = (f: string) => { const d = desdeIso(f); return `${d.getDate()}/${d.getMonth() + 1}`; };
@@ -29,11 +31,15 @@ export function usePartes(desde: string, perfil?: string) {
   const [lista, setLista] = useState<Parte[] | null>(null);
   const [error, setError] = useState('');
   const cargar = useCallback(async () => {
-    let q = supabase.from('partes_fisio').select(COLS).gte('fecha', desde).order('fecha', { ascending: false }).order('creado_en', { ascending: false }).limit(500);
-    if (perfil) q = q.eq('perfil_id', perfil);
-    const { data, error } = await q;
+    const pedir = (cols: string) => {
+      let q = supabase.from('partes_fisio').select(cols).gte('fecha', desde).order('fecha', { ascending: false }).order('creado_en', { ascending: false }).limit(500);
+      if (perfil) q = q.eq('perfil_id', perfil);
+      return q;
+    };
+    let { data, error } = await pedir(COLS_031);
+    if (error && /juega_partido/.test(error.message)) ({ data, error } = await pedir(COLS));   // todavía sin el 031
     if (error) { setError(mensajeError(error)); setLista([]); return; }
-    setLista((data as Parte[]) ?? []);
+    setLista((data as unknown as Parte[]) ?? []);
   }, [desde, perfil]);
   useEffect(() => { cargar(); }, [cargar]);
   return { lista, error, cargar };
@@ -42,8 +48,22 @@ export function usePartes(desde: string, perfil?: string) {
 // ---------- Disponibilidad ----------
 // Por jugador (registrado o con nombre escrito a mano) vale su último parte hasta ese día,
 // mientras no tenga el alta y el rechequeo no haya pasado.
-export type Disp = 'fuera' | 'adaptado' | 'disponible';
-export const dispDe = (p: Parte): Disp => (p.entrena === 'no' ? 'fuera' : p.entrena === 'restricciones' || p.pesas !== 'si' ? 'adaptado' : 'disponible');
+// Adaptado se divide en «con partido» (puede jugar, con minutos limitados) y «sin partido».
+export type Disp = 'fuera' | 'adaptado_partido' | 'adaptado_sin' | 'disponible';
+export const dispDe = (p: Parte): Disp => (p.entrena === 'no' ? 'fuera'
+  : p.entrena === 'restricciones' || p.pesas !== 'si' ? (p.juega_partido ? 'adaptado_partido' : 'adaptado_sin') : 'disponible');
+export const DISP: Record<Disp, { nombre: string; corto: string; bg: string; fg: string }> = {
+  disponible: { nombre: 'Disponibles', corto: 'Disponible', bg: '#EEF3FD', fg: '#1D3F8F' },
+  adaptado_partido: { nombre: 'Adaptados con partido', corto: 'Adaptado · juega', bg: '#FDF1E3', fg: '#8A4B00' },
+  adaptado_sin: { nombre: 'Adaptados sin partido', corto: 'Adaptado · no juega', bg: '#FCE7D6', fg: '#7A3300' },
+  fuera: { nombre: 'Fuera', corto: 'Fuera', bg: '#FBE3E6', fg: '#8E1022' },
+};
+export function PillPartido({ p }: { p: Parte }) {
+  const d = dispDe(p);
+  if (d !== 'adaptado_partido' && d !== 'adaptado_sin') return null;
+  const si = d === 'adaptado_partido';
+  return <span className="pill" style={{ background: si ? '#E3F2EA' : '#FBE3E6', color: si ? '#1F6B45' : '#8E1022', fontSize: 12, whiteSpace: 'nowrap' }}>Partido: {si ? 'sí' : 'no'}</span>;
+}
 const claveDe = (p: Parte) => p.perfil_id ?? `n:${(p.nombre_libre ?? '').trim().toLowerCase()}`;
 export function vigentes(partes: Parte[], dia: string): Parte[] {
   const ultimo = new Map<string, Parte>();
@@ -140,7 +160,7 @@ export default function PestanaFisio({ edita }: { edita: boolean }) {
             </div>
             <span className="small" style={{ whiteSpace: 'pre-wrap' }}>{p.motivo}</span>
             <div className="row" style={{ gap: 6 }}>
-              <PillEstado que="Entrena" estado={p.entrena} /><PillEstado que="Pesas" estado={p.pesas} />
+              <PillEstado que="Entrena" estado={p.entrena} /><PillEstado que="Pesas" estado={p.pesas} /><PillPartido p={p} />
               {p.fecha_rechequeo && <span className="pill" style={{ background: '#EEF3FD', color: '#1D3F8F', fontSize: 12 }}>Rechequeo {ddmm(p.fecha_rechequeo)}</span>}
               {p.fecha_alta && <span className="pill" style={{ background: '#E3F2EA', color: '#1F6B45', fontSize: 12 }}>Alta {ddmm(p.fecha_alta)}</span>}
               {p.nombre_libre && <span className="xs muted" title="Todavía no está registrado en la app">nombre escrito a mano</span>}
@@ -177,6 +197,7 @@ export function EditorParte({ inicial, jugadores, onCerrar, onGuardado }: {
   const [p, setP] = useState({
     perfil_id: inicial.nombre_libre ? LIBRE : inicial.perfil_id ?? '', nombre_libre: inicial.nombre_libre ?? '', fecha: inicial.fecha ?? hoyIso(), motivo: inicial.motivo ?? '',
     entrena: (inicial.entrena ?? 'si') as Estado, pesas: (inicial.pesas ?? 'si') as Estado, restricciones: inicial.restricciones ?? '',
+    juega_partido: !!inicial.juega_partido,
   });
   const [volver, setVolver] = useState(!!inicial.fecha_rechequeo);
   const [rechequeo, setRechequeo] = useState(inicial.fecha_rechequeo ?? iso(sumarDias(desdeIso(inicial.fecha ?? hoyIso()), 2)));
@@ -190,10 +211,12 @@ export function EditorParte({ inicial, jugadores, onCerrar, onGuardado }: {
     if (!p.motivo.trim()) { setError('Escribí el motivo.'); return; }
     if (volver && (!rechequeo || rechequeo < p.fecha)) { setError('La fecha del rechequeo tiene que ser después del parte.'); return; }
     setGuardando(true);
-    const { error } = await supabase.rpc('guardar_parte', {
+    const base = {
       p_id: inicial.id ?? null, p_perfil: p.perfil_id === LIBRE ? null : p.perfil_id, p_nombre_libre: p.perfil_id === LIBRE ? p.nombre_libre.trim() : null, p_fecha: p.fecha, p_motivo: p.motivo.trim(), p_entrena: p.entrena, p_pesas: p.pesas,
       p_restricciones: conRestr ? p.restricciones.trim() || null : null, p_fecha_rechequeo: volver ? rechequeo : null,
-    });
+    };
+    let { error } = await supabase.rpc('guardar_parte', { ...base, p_juega_partido: p.entrena === 'no' ? false : p.juega_partido });
+    if (error && /guardar_parte|juega_partido/.test(error.message) && /function|función|schema cache/i.test(error.message)) ({ error } = await supabase.rpc('guardar_parte', base));   // todavía sin el 031
     setGuardando(false);
     if (error) { setError(mensajeError(error)); return; }
     onGuardado();
@@ -225,6 +248,12 @@ export function EditorParte({ inicial, jugadores, onCerrar, onGuardado }: {
       </label>
       <div className="field"><span>¿Entrena?</span><Opciones id="parte-entrena" valor={p.entrena} onCambio={(v) => setP({ ...p, entrena: v })} /></div>
       <div className="field"><span>¿Pesas?</span><Opciones id="parte-pesas" valor={p.pesas} onCambio={(v) => setP({ ...p, pesas: v })} /></div>
+      {p.entrena !== 'no' && (p.entrena === 'restricciones' || p.pesas !== 'si') && (
+        <label className="row" style={{ gap: 8, cursor: 'pointer' }}>
+          <input id="parte-partido" type="checkbox" checked={p.juega_partido} onChange={(e) => setP({ ...p, juega_partido: e.target.checked })} style={{ width: 18, height: 18 }} />
+          <span><strong>Puede jugar el partido</strong> <span className="small muted">(aunque sea con minutos limitados)</span></span>
+        </label>
+      )}
       {conRestr && (
         <label className="field"><span>¿Qué restricciones? (opcional)</span>
           <input id="parte-restricciones" className="input" maxLength={1000} value={p.restricciones} onChange={(e) => setP({ ...p, restricciones: e.target.value })} placeholder="Por ejemplo: sin sprints ni saltos; tren superior libre" />

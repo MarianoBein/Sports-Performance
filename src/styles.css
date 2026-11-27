@@ -176,3 +176,15 @@ button.org-item:hover { background: #F1EFEA; }
 .gracias { position: fixed; inset: 0; z-index: 50; background: var(--bg, #F6F5F2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; animation: gracias-entra .18s ease-out; }
 .gracias-check { width: 84px; height: 84px; border-radius: 42px; background: #1E9E4A; color: #fff; display: flex; align-items: center; justify-content: center; }
 @keyframes gracias-entra { from { opacity: 0; transform: scale(.97); } to { opacity: 1; transform: none; } }
+
+/* Historial del ejercicio (vista del jugador) */
+.reloj-historial { position: fixed; right: 20px; bottom: 24px; z-index: 30; width: 58px; height: 58px; border-radius: 50%; border: 0; background: var(--ink, #16181D); color: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 22px rgba(22,24,29,.28); cursor: pointer; }
+.historial-hoja { position: fixed; inset: 0; z-index: 60; background: var(--bg, #F6F5F2); overflow-y: auto; padding: calc(16px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 14px; }
+.historial-hoja > * { width: 100%; max-width: 560px; margin-left: auto; margin-right: auto; }
+.historial-dia { display: flex; gap: 10px; align-items: center; }
+.historial-tabla { border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.historial-tabla th { text-align: left; font-size: 13px; font-weight: 700; padding: 4px 14px 4px 0; white-space: nowrap; }
+.historial-tabla td { text-align: center; min-width: 42px; padding: 4px 6px; font-size: 17px; font-weight: 600; }
+.historial-tabla tr:first-child td { color: var(--muted); font-size: 14px; }
+@media (max-width: 760px) { .reloj-historial { bottom: calc(86px + env(safe-area-inset-bottom)); right: 16px; } }
+@media (max-width: 480px) { .disp-cajas { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; } }

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase, mensajeError } from '../../lib/supabase';
 import { desdeIso, fechaLarga, hoyIso, iso, sumarDias } from '../../lib/calendario';
-import { PillEstado, usePartes } from './Fisio';
+import { PillEstado, PillPartido, usePartes } from './Fisio';
 
 // Ficha del jugador: entrenamientos de campo, partidos, sesiones de pesas, faltas e historial de partes de fisio.
 type Ficha = {
@@ -71,7 +71,7 @@ export default function FichaJugador({ perfil }: { perfil: string }) {
               <div key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 4, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line-soft)' }}>
                 <span className="small"><strong>{cap(fechaLarga(p.fecha))}</strong> · {p.motivo}</span>
                 <div className="row" style={{ gap: 6 }}>
-                  <PillEstado que="Entrena" estado={p.entrena} /><PillEstado que="Pesas" estado={p.pesas} />
+                  <PillEstado que="Entrena" estado={p.entrena} /><PillEstado que="Pesas" estado={p.pesas} /><PillPartido p={p} />
                   {p.fecha_rechequeo && <span className="xs muted">Rechequeo {ddmm(p.fecha_rechequeo)}</span>}
                   {p.restricciones && <span className="xs muted">· {p.restricciones}</span>}
                 </div>

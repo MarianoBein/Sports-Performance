@@ -7,7 +7,7 @@ import { COLORES_5, PREGUNTAS, RPE, TEXTO_5, bienDe, colorRpe, type Pregunta } f
 import Dialogo from '../components/Dialogo';
 import { useSearchParams } from 'react-router-dom';
 import PestanaAlertas, { useAlertasRecientes } from './ssh/Alertas';
-import PestanaFisio, { PillEstado, usePartes, vigentes } from './ssh/Fisio';
+import PestanaFisio, { PillEstado, PillPartido, usePartes, vigentes } from './ssh/Fisio';
 import PestanaDashboard from './ssh/Dashboard';
 
 type Fila = {
@@ -226,7 +226,7 @@ function VistaDia({ edita }: { edita: boolean }) {
                   {faltas.has(f.perfil_id) && <span className="xs muted" style={{ marginLeft: 6, fontWeight: 400 }}>no vino</span>}
                   {(() => { const p = parteDe(f.perfil_id); return p && (
                     <span className="parte-marca row" title={p.motivo} style={{ gap: 4, marginTop: 4, flexWrap: 'wrap', fontWeight: 400 }}>
-                      <span aria-hidden="true">🩺</span>{p.entrena !== 'si' && <PillEstado que="Entrena" estado={p.entrena} />}{p.pesas !== 'si' && <PillEstado que="Pesas" estado={p.pesas} />}
+                      <span aria-hidden="true">🩺</span>{p.entrena !== 'si' && <PillEstado que="Entrena" estado={p.entrena} />}{p.pesas !== 'si' && <PillEstado que="Pesas" estado={p.pesas} />}{(p.entrena !== 'si' || p.pesas !== 'si') && <PillPartido p={p} />}
                       {p.entrena === 'si' && p.pesas === 'si' && <span className="xs muted">parte de fisio</span>}
                     </span>
                   ); })()}

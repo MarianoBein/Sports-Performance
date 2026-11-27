@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { supabase, mensajeError } from '../../lib/supabase';
 import { desdeIso, fechaLarga, hoyIso, iso, sumarDias } from '../../lib/calendario';
-import { EditorParte, PillEstado, dispDe, useJugadores, usePartes, vigentes, type Parte } from './Fisio';
+import { DISP, EditorParte, PillEstado, PillPartido, dispDe, useJugadores, usePartes, vigentes, type Parte } from './Fisio';
 
 // Tablero de disponibilidad: sale de los partes de fisio.
-// «Entrena: no» → Fuera · «con restricciones» o «Pesas: no» → Adaptado · el resto, disponible.
+// «Entrena: no» → Fuera · «con restricciones» o «Pesas: no» → Adaptado (con o sin partido) · el resto, disponible.
 // Solo lo ve el staff que entra al Hub (también C-level); los jugadores, nunca.
 const ddmm = (f: string) => { const d = desdeIso(f); return `${d.getDate()}/${d.getMonth() + 1}`; };
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
@@ -19,8 +19,9 @@ export function TableroDisponibilidad({ fecha, edita, compacto = false }: { fech
   const nombre = (p: Parte) => p.nombre_libre ?? jugadores.find((j) => j.id === p.perfil_id)?.nombre ?? '…';
   const vs = vigentes(lista ?? [], fecha);
   const fuera = vs.filter((p) => dispDe(p) === 'fuera').sort((a, b) => nombre(a).localeCompare(nombre(b)));
-  const adaptados = vs.filter((p) => dispDe(p) === 'adaptado').sort((a, b) => nombre(a).localeCompare(nombre(b)));
-  const registradosAfuera = new Set([...fuera, ...adaptados].map((p) => p.perfil_id).filter(Boolean));
+  const conPartido = vs.filter((p) => dispDe(p) === 'adaptado_partido').sort((a, b) => nombre(a).localeCompare(nombre(b)));
+  const sinPartido = vs.filter((p) => dispDe(p) === 'adaptado_sin').sort((a, b) => nombre(a).localeCompare(nombre(b)));
+  const registradosAfuera = new Set([...fuera, ...conPartido, ...sinPartido].map((p) => p.perfil_id).filter(Boolean));
   const disponibles = jugadores.filter((j) => !registradosAfuera.has(j.id)).length;
 
   async function alta(p: Parte) {
@@ -30,7 +31,7 @@ export function TableroDisponibilidad({ fecha, edita, compacto = false }: { fech
   }
 
   const Columna = ({ titulo, color, fondo, ps, vacio }: { titulo: string; color: string; fondo: string; ps: Parte[]; vacio: string }) => (
-    <section className="disp-columna" style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, borderRadius: 14, background: fondo }}>
+    <section className="disp-columna" style={{ flex: '1 1 220px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, borderRadius: 14, background: fondo }}>
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <strong style={{ color, fontSize: 15 }}>{titulo}</strong>
         <span className="pill" style={{ background: '#fff', color, fontWeight: 700 }}>{ps.length}</span>
@@ -50,7 +51,7 @@ export function TableroDisponibilidad({ fecha, edita, compacto = false }: { fech
             </button>
             {on && (
               <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div className="row" style={{ gap: 6 }}><PillEstado que="Entrena" estado={p.entrena} /><PillEstado que="Pesas" estado={p.pesas} /></div>
+                <div className="row" style={{ gap: 6 }}><PillEstado que="Entrena" estado={p.entrena} /><PillEstado que="Pesas" estado={p.pesas} /><PillPartido p={p} /></div>
                 {p.restricciones && <span className="small">Restricciones: {p.restricciones}</span>}
                 <span className="xs muted">Parte del {cap(fechaLarga(p.fecha))}{p.nombre_libre ? ' · todavía no está en la app' : ''}</span>
                 {edita && (
@@ -76,13 +77,14 @@ export function TableroDisponibilidad({ fecha, edita, compacto = false }: { fech
       {(error || errorAccion) && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error || errorAccion}</p>}
       {!lista ? <span className="small muted">Cargando…</span> : (
         <div className="row" style={{ gap: 10, alignItems: 'stretch' }}>
-          <Columna titulo="Adaptados" color="#8A4B00" fondo="#FDF6EC" ps={adaptados} vacio="Nadie con entrenamiento adaptado." />
+          <Columna titulo={DISP.adaptado_partido.nombre} color={DISP.adaptado_partido.fg} fondo="#FDF6EC" ps={conPartido} vacio="Nadie adaptado que juegue." />
+          <Columna titulo={DISP.adaptado_sin.nombre} color={DISP.adaptado_sin.fg} fondo="#FCEFE4" ps={sinPartido} vacio="Nadie adaptado sin partido." />
           <Columna titulo="Fuera" color="#8E1022" fondo="#FCEEF0" ps={fuera} vacio="Nadie fuera." />
         </div>
       )}
       {nuevo && <EditorParte inicial={{ fecha, entrena: 'restricciones', pesas: 'restricciones' }} jugadores={jugadores} onCerrar={() => setNuevo(false)} onGuardado={() => { setNuevo(false); cargar(); }} />}
       {editando && (
-        <EditorParte inicial={{ perfil_id: editando.perfil_id, nombre_libre: editando.nombre_libre, fecha: fecha < editando.fecha ? editando.fecha : fecha, entrena: editando.entrena, pesas: editando.pesas, motivo: editando.motivo, restricciones: editando.restricciones, fecha_rechequeo: editando.fecha_rechequeo }}
+        <EditorParte inicial={{ perfil_id: editando.perfil_id, nombre_libre: editando.nombre_libre, fecha: fecha < editando.fecha ? editando.fecha : fecha, entrena: editando.entrena, pesas: editando.pesas, motivo: editando.motivo, restricciones: editando.restricciones, fecha_rechequeo: editando.fecha_rechequeo, juega_partido: editando.juega_partido ?? false }}
           jugadores={jugadores} onCerrar={() => setEditando(null)} onGuardado={() => { setEditando(null); cargar(); }} />
       )}
     </div>

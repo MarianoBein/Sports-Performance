@@ -334,6 +334,9 @@ debe_fallar('adminA', 'ficha de un jugador de otro club', 'select ficha_jugador(
 k0.execute('select id from partes_fisio where club_id = %s', (A,)); PARTE_A = k0.fetchone()[0]
 debe_fallar('adminB', 'borrar un parte de A', 'select eliminar_parte(%s)', (PARTE_A,))
 debe_fallar('adminB', 'cambiar un parte de A', "select guardar_parte(%s, %s, null, current_date, 'x', 'si', 'si')", (PARTE_A, PERF['jugB']))
+debe_andar('pfA', 'parte adaptado que juega el partido', "select guardar_parte(null, null, 'Juvenil Partido', current_date, 'Tobillo', 'restricciones', 'si', null, null, true); select juega_partido from partes_fisio where nombre_libre = 'Juvenil Partido'", esperado=True)
+debe_andar('pfA', 'si no entrena, no juega el partido', "select guardar_parte(null, null, 'Juvenil Fuera', current_date, 'Rodilla', 'no', 'no', null, null, true); select juega_partido from partes_fisio where nombre_libre = 'Juvenil Fuera'", esperado=False)
+debe_fallar('adminB', 'parte con partido en jugador de A', "select guardar_parte(null, %s, null, current_date, 'x', 'restricciones', 'si', null, null, true)", (PERF['jugA'],))
 debe_andar('pfA', 'parte con nombre escrito a mano', "select guardar_parte(null, null, 'Mariano Bein', current_date, 'Rodilla', 'restricciones', 'si') is not null", esperado=True)
 debe_fallar('pfA', 'parte sin jugador ni nombre', "select guardar_parte(null, null, '  ', current_date, 'x', 'si', 'si')")
 debe_fallar('jugA', 'dar el alta', 'select dar_alta_parte(%s, current_date)', (PARTE_A,))

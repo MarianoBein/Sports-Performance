@@ -4,7 +4,7 @@ import { desdeIso, hoyIso, iso, sumarDias } from '../../lib/calendario';
 import { diasEntre, fmt, type Datos, type Dia } from '../../lib/carga';
 import { useDatos, Cargando } from './comun';
 import { useAlertasRecientes } from './Alertas';
-import { PillEstado, dispDe, usePartes, vigentes, type Parte } from './Fisio';
+import { DISP, PillEstado, PillPartido, dispDe, usePartes, vigentes, type Disp, type Parte } from './Fisio';
 import Dialogo from '../../components/Dialogo';
 
 // Dashboard del Sports Science Hub: una sola vista que junta Wellness, Sesión, Semana y Jugador.
@@ -63,7 +63,7 @@ export default function PestanaDashboard({ edita }: { edita: boolean }) {
   const [resaltado, setResaltado] = useState<string | null>(null);
   const { lista: alertas } = useAlertasRecientes(2);
   const { lista: partes, cargar: cargarPartes } = usePartes(iso(sumarDias(desdeIso(hoy), -365)));
-  const [lista, setLista] = useState<null | 'disponible' | 'adaptado' | 'fuera'>(null);
+  const [lista, setLista] = useState<null | Disp>(null);
 
   const todos = datos?.jugadores ?? [];
   const elegidos = sel == null ? todos : todos.filter((j) => sel.includes(j.id));
@@ -169,7 +169,7 @@ function Casilla({ texto, extra, marcado, fuerte, onCambio }: { texto: string; e
 function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsElegidos, alertas, partes, resaltado, setResaltado, abrirLista, soloUno }: {
   datos: Datos; hoy: string; desde: string; hasta: string; ventana: number; elegidos: Datos['jugadores']; todos: Datos['jugadores'];
   idsElegidos: Set<string>; alertas: { perfil_id: string; fecha: string; detalle: string }[]; partes: Parte[];
-  resaltado: string | null; setResaltado: (s: string | null) => void; abrirLista: (t: 'disponible' | 'adaptado' | 'fuera') => void; soloUno: (id: string) => void;
+  resaltado: string | null; setResaltado: (s: string | null) => void; abrirLista: (t: Disp) => void; soloUno: (id: string) => void;
 }) {
   // El «hoy» del dashboard es el último día del período
   const dia = hasta < hoy ? hasta : hoy;
@@ -199,9 +199,9 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
   // Disponibilidad del día
   const vig = vigentes(partes, dia);
   const estadoDe = (id: string) => { const p = vig.find((x) => x.perfil_id === id); return p ? dispDe(p) : 'disponible'; };
-  const adaptados = vig.filter((p) => dispDe(p) === 'adaptado' && (p.perfil_id ? idsElegidos.has(p.perfil_id) : elegidos.length === todos.length));
-  const fuera = vig.filter((p) => dispDe(p) === 'fuera' && (p.perfil_id ? idsElegidos.has(p.perfil_id) : elegidos.length === todos.length));
+  const cuantos = (t: Disp) => vig.filter((p) => dispDe(p) === t && (p.perfil_id ? idsElegidos.has(p.perfil_id) : elegidos.length === todos.length)).length;
   const disponibles = elegidos.filter((j) => estadoDe(j.id) === 'disponible');
+  const cajas: [Disp, number][] = [['disponible', disponibles.length], ['adaptado_partido', cuantos('adaptado_partido')], ['adaptado_sin', cuantos('adaptado_sin')], ['fuera', cuantos('fuera')]];
 
   // A quién mirar hoy: lejos de su propia media + alertas de tus reglas
   const alertasHoy = alertas.filter((a) => a.fecha === dia && idsElegidos.has(a.perfil_id));
@@ -302,11 +302,11 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
           </section>
           <section className="card" aria-label="Disponibilidad" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             <strong style={{ fontSize: 17 }}>Disponibilidad</strong>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
-              {([['disponible', 'Disponibles', disponibles.length, '#EEF3FD', '#1D3F8F'], ['adaptado', 'Adaptados', adaptados.length, '#FDF1E3', '#8A4B00'], ['fuera', 'Fuera', fuera.length, '#FBE3E6', '#8E1022']] as const).map(([k, t, n, bg, fg]) => (
-                <button key={k} type="button" className={`disp-${k}`} onClick={() => abrirLista(k)} style={{ border: 0, borderRadius: 12, padding: '10px 6px', background: bg, color: fg, cursor: 'pointer', textAlign: 'center' }}>
+            <div className="disp-cajas" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
+              {cajas.map(([k, n]) => (
+                <button key={k} type="button" className={`disp-${k}`} onClick={() => abrirLista(k)} style={{ border: 0, borderRadius: 12, padding: '10px 4px', background: DISP[k].bg, color: DISP[k].fg, cursor: 'pointer', textAlign: 'center' }}>
                   <span className="display" style={{ display: 'block', fontSize: 30 }}>{n}</span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, textDecoration: 'underline' }}>{t}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, textDecoration: 'underline', lineHeight: 1.2, display: 'block' }}>{DISP[k].nombre}</span>
                 </button>
               ))}
             </div>
@@ -358,7 +358,7 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
                     {f.comps.map((c, i) => <td key={i} style={{ textAlign: 'center', fontWeight: 600, background: tono(c.hoy != null && c.media != null ? c.hoy - c.media : c.hoy == null ? null : 0)[0], color: tono(c.hoy != null && c.media != null ? c.hoy - c.media : c.hoy == null ? null : 0)[1], borderRadius: 8 }}>{fmt(c.hoy, 0)}</td>)}
                     {celda(fmt(f.esfuerzoHoy, 0), tono(f.esfuerzoHoy == null ? null : f.rpeHoy != null && f.rpeHoy >= 9 ? -1 : 0))}
                     {celda(fmt(f.carga7, 0), tono(f.carga7 == null ? null : cargaAlta ? -0.6 : 0), true)}
-                    <td style={{ textAlign: 'center' }}><span className="pill" style={{ fontSize: 12, background: e === 'fuera' ? '#FBE3E6' : e === 'adaptado' ? '#FDF1E3' : '#EEF3FD', color: e === 'fuera' ? '#8E1022' : e === 'adaptado' ? '#8A4B00' : '#1D3F8F' }}>{e === 'fuera' ? 'Fuera' : e === 'adaptado' ? 'Adaptado' : 'Disponible'}</span></td>
+                    <td style={{ textAlign: 'center' }}><span className="pill" style={{ fontSize: 12, whiteSpace: 'nowrap', background: DISP[e].bg, color: DISP[e].fg }}>{DISP[e].corto}</span></td>
                   </tr>
                 );
               })}
@@ -401,7 +401,7 @@ function Rombo({ equipo, series, resaltado }: { equipo: (number | null)[]; serie
 
 // ---------- Ventana con la lista de disponibilidad ----------
 function ListaDisponibilidad({ tipo, hoy, edita, partes, elegidos, todosElegidos, onCerrar, onCambio }: {
-  tipo: 'disponible' | 'adaptado' | 'fuera'; hoy: string; edita: boolean; partes: Parte[]; elegidos: Datos['jugadores']; todosElegidos: boolean;
+  tipo: Disp; hoy: string; edita: boolean; partes: Parte[]; elegidos: Datos['jugadores']; todosElegidos: boolean;
   onCerrar: () => void; onCambio: () => void;
 }) {
   const [abierto, setAbierto] = useState<string | null>(null);
@@ -412,7 +412,7 @@ function ListaDisponibilidad({ tipo, hoy, edita, partes, elegidos, todosElegidos
   const deTipo = vig.filter((p) => dispDe(p) === tipo && (p.perfil_id ? ids.has(p.perfil_id) : todosElegidos)).sort((a, b) => nombre(a).localeCompare(nombre(b)));
   const conParte = new Set(vig.filter((p) => dispDe(p) !== 'disponible').map((p) => p.perfil_id));
   const disponibles = elegidos.filter((j) => !conParte.has(j.id));
-  const titulo = tipo === 'disponible' ? `Disponibles (${disponibles.length})` : tipo === 'adaptado' ? `Adaptados (${deTipo.length})` : `Fuera (${deTipo.length})`;
+  const titulo = `${DISP[tipo].nombre} (${tipo === 'disponible' ? disponibles.length : deTipo.length})`;
 
   async function alta(p: Parte) {
     const { error } = await supabase.rpc('dar_alta_parte', { p_id: p.id, p_fecha: hoy < p.fecha ? p.fecha : hoy });
@@ -428,7 +428,7 @@ function ListaDisponibilidad({ tipo, hoy, edita, partes, elegidos, todosElegidos
             {disponibles.map((j) => <span key={j.id} style={{ padding: '8px 10px', borderRadius: 8, background: 'var(--bg)' }}>{j.nombre}</span>)}
           </div>
         </>
-      ) : !deTipo.length ? <span className="small muted">Nadie {tipo === 'adaptado' ? 'adaptado' : 'fuera'} en tu selección.</span> : (
+      ) : !deTipo.length ? <span className="small muted">Nadie en «{DISP[tipo].nombre}» en tu selección.</span> : (
         <div className="stack" style={{ gap: 6 }}>
           <span className="small muted">Tocá un nombre para ver el porqué.</span>
           {deTipo.map((p) => {
@@ -442,7 +442,7 @@ function ListaDisponibilidad({ tipo, hoy, edita, partes, elegidos, todosElegidos
                 {on && (
                   <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 6, background: 'var(--bg)' }}>
                     <span className="small">{p.motivo}</span>
-                    <div className="row" style={{ gap: 6 }}><PillEstado que="Entrena" estado={p.entrena} /><PillEstado que="Pesas" estado={p.pesas} /></div>
+                    <div className="row" style={{ gap: 6 }}><PillEstado que="Entrena" estado={p.entrena} /><PillEstado que="Pesas" estado={p.pesas} /><PillPartido p={p} /></div>
                     {p.restricciones && <span className="small">Restricciones: {p.restricciones}</span>}
                     <span className="xs muted">Parte del {ddmm(p.fecha)}{p.nombre_libre ? ' · todavía no está en la app' : ''}</span>
                     {edita && <button type="button" className="btn btn-sm btn-primary" style={{ alignSelf: 'flex-start' }} onClick={() => alta(p)}>Dar el alta</button>}

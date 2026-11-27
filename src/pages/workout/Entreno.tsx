@@ -69,7 +69,7 @@ export default function Entreno({ perfilId, soloLectura = false }: { perfilId?: 
 
   if (abierto != null && ejercicios[abierto]) {
     return (
-      <Detalle key={ejercicios[abierto].id} e={ejercicios[abierto]} n={abierto} total={ejercicios.length} bloque={bloqueDe(ejercicios[abierto].id)} soloLectura={soloLectura}
+      <Detalle key={ejercicios[abierto].id} fecha={fecha} perfilId={perfilId} e={ejercicios[abierto]} n={abierto} total={ejercicios.length} bloque={bloqueDe(ejercicios[abierto].id)} soloLectura={soloLectura}
         onVolver={() => { setAbierto(null); cargar(); }}
         onIr={(i) => setAbierto(i)}
         onGuardado={(hecho, completado, rpe) => {
@@ -127,8 +127,8 @@ export default function Entreno({ perfilId, soloLectura = false }: { perfilId?: 
   );
 }
 
-function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado }: {
-  e: ItemEntreno; n: number; total: number; bloque: string; soloLectura: boolean;
+function Detalle({ fecha, perfilId, e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado }: {
+  fecha: string; perfilId?: string; e: ItemEntreno; n: number; total: number; bloque: string; soloLectura: boolean;
   onVolver: () => void; onIr: (i: number) => void; onGuardado: (hecho: Serie[], completado: boolean, rpe: number | null) => void;
 }) {
   const { perfil } = useSesion();
@@ -141,6 +141,7 @@ function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado 
   }));
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState('');
+  const [verHistorial, setVerHistorial] = useState(false);
   const vid = idYoutube(e.video_url);
 
   async function guardar(completado: boolean) {
@@ -266,6 +267,73 @@ function Detalle({ e, n, total, bloque, soloLectura, onVolver, onIr, onGuardado 
         </button>
       ))}
       {soloLectura && <p className="xs muted" style={{ margin: 0 }}>{e.completado_en ? 'Completado por el jugador.' : 'Todavía no lo completó.'}</p>}
+
+      <div aria-hidden="true" style={{ height: 64 }} />
+      <button type="button" className="reloj-historial" aria-label={`Historial de ${e.nombre}`} title="Historial" onClick={() => setVerHistorial(true)}>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l3 2" />
+        </svg>
+      </button>
+      {verHistorial && <HistorialPropio perfilId={perfilId ?? perfil?.id ?? ''} ejercicioId={e.ejercicio_id} nombre={e.nombre} antesDe={fecha} onCerrar={() => setVerHistorial(false)} />}
+    </div>
+  );
+}
+
+// Historial del ejercicio: cada día que lo registró, con series, kilos y repeticiones (lo que hizo, no lo prescrito).
+type RegistroH = { fecha: string; hecho: Serie[]; prescrito: Serie[]; completado_en: string | null };
+const MESES_CORTOS = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
+const DIAS_CORTOS = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'];
+function HistorialPropio({ perfilId, ejercicioId, nombre, antesDe, onCerrar }: { perfilId: string; ejercicioId: string | null; nombre: string; antesDe: string; onCerrar: () => void }) {
+  const [lista, setLista] = useState<RegistroH[] | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let q = supabase.from('sesion_registros').select('fecha,hecho,prescrito,completado_en').eq('perfil_id', perfilId).lt('fecha', antesDe);
+    q = ejercicioId ? q.eq('ejercicio_id', ejercicioId) : q.ilike('nombre', nombre.replace(/[%_\\]/g, (c) => `\\${c}`));
+    q.order('fecha', { ascending: false }).limit(30).then(({ data, error }) => {
+      if (error) { setError(mensajeError(error)); setLista([]); return; }
+      // Solo los días con algo registrado
+      setLista(((data as RegistroH[]) ?? []).filter((r) => r.completado_en || (r.hecho ?? []).some((h) => h.reps || h.kg != null)));
+    });
+  }, [perfilId, ejercicioId, nombre, antesDe]);
+  useEffect(() => {
+    const k = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onCerrar(); };
+    window.addEventListener('keydown', k); return () => window.removeEventListener('keydown', k);
+  }, [onCerrar]);
+  const anioHoy = new Date().getFullYear();
+  return (
+    <div className="historial-hoja" role="dialog" aria-modal="true" aria-label={`Historial de ${nombre}`}>
+      <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onCerrar} aria-label="Volver al ejercicio">‹ Volver</button>
+      </div>
+      <div>
+        <h2 className="display" style={{ margin: 0, fontSize: 34 }}>Historial</h2>
+        <span style={{ fontSize: 17, overflowWrap: 'anywhere' }}>{nombre}</span>
+      </div>
+      {error && <p className="notice notice-error" role="alert" style={{ margin: 0 }}>{error}</p>}
+      {!lista ? <p className="small muted">Cargando…</p> : !lista.length ? <p className="small muted">Todavía no hay días anteriores con este ejercicio.</p> : lista.map((r) => {
+        const d = desdeIso(r.fecha);
+        const series = (r.hecho?.length ? r.hecho : []);
+        return (
+          <div key={r.fecha} className="historial-dia">
+            <div style={{ textAlign: 'center', width: 58, flex: 'none', lineHeight: 1.05 }}>
+              <div className="display" style={{ fontSize: 30 }}>{d.getDate()}</div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{MESES_CORTOS[d.getMonth()]}</div>
+              <div className="xs muted">{DIAS_CORTOS[diaSemana(d)]}</div>
+              {d.getFullYear() !== anioHoy && <div className="xs muted">{d.getFullYear()}</div>}
+            </div>
+            <div className="card" style={{ flex: 1, minWidth: 0, padding: '10px 12px', overflowX: 'auto' }}>
+              <table className="historial-tabla">
+                <tbody>
+                  <tr><th>Serie</th>{series.map((_, i) => <td key={i}>{i + 1}</td>)}</tr>
+                  <tr><th>Kg</th>{series.map((h, i) => <td key={i}>{h.kg == null ? '—' : String(h.kg).replace('.', ',')}</td>)}</tr>
+                  <tr><th>Reps</th>{series.map((h, i) => <td key={i}>{h.reps || '—'}</td>)}</tr>
+                </tbody>
+              </table>
+              {!r.completado_en && <div className="xs muted" style={{ marginTop: 4 }}>Sin completar</div>}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
