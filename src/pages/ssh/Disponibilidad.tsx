@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { supabase, mensajeError } from '../../lib/supabase';
 import { desdeIso, fechaLarga, hoyIso, iso, sumarDias } from '../../lib/calendario';
-import { DISP, EditorParte, PillEstado, PillPartido, dispDe, useJugadores, usePartes, vigentes, type Parte } from './Fisio';
+import { DISP, TextoRechequeo, EditorParte, PillEstado, PillPartido, dispDe, useJugadores, usePartes, vigentes, type Parte } from './Fisio';
 
 // Tablero de disponibilidad: sale de los partes de fisio.
 // «Entrena: no» → Fuera · «con restricciones» o «Pesas: no» → Adaptado (con o sin partido) · el resto, disponible.
@@ -45,7 +45,7 @@ export function TableroDisponibilidad({ fecha, edita, compacto = false }: { fech
               style={{ width: '100%', border: 0, background: 'transparent', padding: '10px 12px', textAlign: 'left', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 4 }}>
               <span className="row" style={{ justifyContent: 'space-between', gap: 6, width: '100%' }}>
                 <strong>{nombre(p)}</strong>
-                <span className="xs muted">{p.fecha_rechequeo ? `rechequeo ${ddmm(p.fecha_rechequeo)}` : 'hasta el alta'}</span>
+                <TextoRechequeo p={p} dia={fecha} />
               </span>
               <span className="small muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: on ? 'normal' : 'nowrap' }}>{p.motivo}</span>
             </button>
@@ -97,7 +97,7 @@ export default function PestanaDisponibilidad({ edita }: { edita: boolean }) {
     <div className="stack">
       <div className="page-head" style={{ marginBottom: 0 }}>
         <p className="muted small" style={{ margin: 0, flex: '1 1 320px' }}>
-          Quién está adaptado y quién está fuera, según los partes de fisio. Cada jugador queda hasta el rechequeo o hasta que le den el alta. Si alguien todavía no está en la app, se escribe su nombre en el parte.
+          Quién está adaptado y quién está fuera, según los partes de fisio. Cada jugador queda así hasta que le den el alta; si pasó el rechequeo y nadie lo actualizó, aparece «⚠ rechequeo vencido». Si alguien todavía no está en la app, se escribe su nombre en el parte.
         </p>
         <div className="row">
           <button type="button" className="btn" style={{ width: 44, padding: 0 }} aria-label="Día anterior" onClick={() => setFecha(iso(sumarDias(desdeIso(fecha), -1)))}>‹</button>

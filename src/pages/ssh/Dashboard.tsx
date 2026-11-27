@@ -4,7 +4,7 @@ import { desdeIso, hoyIso, iso, sumarDias } from '../../lib/calendario';
 import { diasEntre, fmt, type Datos, type Dia } from '../../lib/carga';
 import { useDatos, Cargando } from './comun';
 import { useAlertasRecientes } from './Alertas';
-import { DISP, PillEstado, PillPartido, dispDe, usePartes, vigentes, type Disp, type Parte } from './Fisio';
+import { DISP, TextoRechequeo, vencido, PillEstado, PillPartido, dispDe, usePartes, vigentes, type Disp, type Parte } from './Fisio';
 import Dialogo from '../../components/Dialogo';
 
 // Dashboard del Sports Science Hub: una sola vista que junta Wellness, Sesión, Semana y Jugador.
@@ -203,16 +203,20 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
   const disponibles = elegidos.filter((j) => estadoDe(j.id) === 'disponible');
   const cajas: [Disp, number][] = [['disponible', disponibles.length], ['adaptado_partido', cuantos('adaptado_partido')], ['adaptado_sin', cuantos('adaptado_sin')], ['fuera', cuantos('fuera')]];
 
-  // A quién mirar hoy: lejos de su propia media + alertas de tus reglas
+  // A quién mirar hoy: solo lo de este día. Arriba, todas las alertas de tus reglas; abajo, los que se alejan de su propia media.
   const alertasHoy = alertas.filter((a) => a.fecha === dia && idsElegidos.has(a.perfil_id));
+  const conAlerta = elegidos.map((j) => ({ j, als: alertasHoy.filter((a) => a.perfil_id === j.id).map((a) => a.detalle.split(': ').slice(1).join(': ') || a.detalle) }))
+    .filter((x) => x.als.length);
   type Chip = { texto: string; muy: boolean };
-  const mirar = fila.map((f) => {
+  const desvios = fila.map((f) => {
     const chips: Chip[] = []; let peor = 0;
     f.comps.forEach((c, i) => { if (c.hoy != null && c.media != null && c.hoy - c.media <= -0.5) { chips.push({ texto: `${COMPONENTES[i].nombre} ${fmt(c.hoy, 0)} (media ${fmt(c.media, 1)})`, muy: c.hoy - c.media <= -1 }); peor = Math.min(peor, c.hoy - c.media); } });
-    if (f.rpeHoy != null && f.rpeHoy >= 9) { chips.push({ texto: `RPE ${f.rpeHoy} ${dia === hoy ? 'hoy' : 'ese día'}`, muy: true }); peor = Math.min(peor, -1); }
-    const als = alertasHoy.filter((a) => a.perfil_id === f.j.id).map((a) => a.detalle.split(': ').slice(1).join(': ') || a.detalle);
-    return { j: f.j, chips, als, peor: als.length ? peor - 0.5 : peor };
-  }).filter((m) => m.chips.length || m.als.length).sort((a, b) => a.peor - b.peor).slice(0, 8);
+    if (f.rpeHoy != null && f.rpeHoy >= 9) { chips.push({ texto: `RPE ${f.rpeHoy}`, muy: true }); peor = Math.min(peor, -1); }
+    return { j: f.j, chips, peor };
+  }).filter((m) => m.chips.length).sort((a, b) => a.peor - b.peor);
+  const [todosDesvios, setTodosDesvios] = useState(false);
+  const desviosVisibles = todosDesvios ? desvios : desvios.slice(0, 8);
+  const vencidos = vig.filter((p) => vencido(p, dia) && (p.perfil_id ? idsElegidos.has(p.perfil_id) : elegidos.length === todos.length)).length;
 
   // Rombo: equipo entero de fondo; de 1 a 10 elegidos, una línea cada uno; más, un rombo con su promedio
   const equipo = COMPONENTES.map((c) => prom(todos.map((j) => bueno(datos.dia(j.id, dia), c.k))));
@@ -290,18 +294,29 @@ function Contenido({ datos, hoy, desde, hasta, ventana, elegidos, todos, idsEleg
 
         <div style={{ flex: '1 1 380px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
           <section className="card" aria-label="A quién mirar hoy" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}><strong style={{ fontSize: 17 }}>A quién mirar {dia === hoy ? 'hoy' : `el ${ddmm(dia)}`}</strong><span className="xs muted">⚠ = saltó una de tus alertas</span></div>
-            {!mirar.length && <span className="small muted">Nadie de tu selección se aleja de su media.</span>}
-            {mirar.map((m) => (
+            <strong style={{ fontSize: 17 }}>A quién mirar {dia === hoy ? 'hoy' : `el ${ddmm(dia)}`}</strong>
+            <span className="xs muted" style={{ fontWeight: 700, letterSpacing: 0.5 }}>⚠ ALERTAS DE {dia === hoy ? 'HOY' : ddmm(dia)}</span>
+            {!conAlerta.length && <span className="small muted">No saltó ninguna de tus alertas.</span>}
+            {conAlerta.map((m) => (
+              <div key={m.j.id} className="row mirar-alerta" style={{ gap: 6, padding: '8px 10px', borderRadius: 10, background: '#16181D', color: '#fff' }}>
+                <button type="button" onClick={() => soloUno(m.j.id)} title="Ver solo a este jugador" style={{ border: 0, background: 'none', color: '#fff', padding: 0, font: 'inherit', fontWeight: 700, cursor: 'pointer', minWidth: 110, textAlign: 'left' }}>{m.j.nombre}</button>
+                {m.als.map((a, i) => <span key={i} className="pill" style={{ background: '#B3122E', color: '#fff', fontSize: 12 }}>⚠ {a}</span>)}
+              </div>
+            ))}
+            <span className="xs muted" style={{ fontWeight: 700, letterSpacing: 0.5, paddingTop: 6, borderTop: '1px solid var(--line-soft)' }}>LEJOS DE SU MEDIA ({ventana} DÍAS)</span>
+            {!desvios.length && <span className="small muted">Nadie de tu selección se aleja de su media.</span>}
+            {desviosVisibles.map((m) => (
               <div key={m.j.id} className="row mirar" style={{ gap: 6, padding: '8px 10px', borderRadius: 10, background: 'var(--bg)' }}>
                 <button type="button" onClick={() => soloUno(m.j.id)} title="Ver solo a este jugador" style={{ border: 0, background: 'none', padding: 0, font: 'inherit', fontWeight: 600, cursor: 'pointer', minWidth: 110, textAlign: 'left' }}>{m.j.nombre}</button>
-                {m.als.map((a, i) => <span key={i} className="pill" style={{ background: '#16181D', color: '#fff', fontSize: 12 }}>⚠ {a}</span>)}
                 {m.chips.map((c, i) => <span key={i} className="pill" style={{ background: c.muy ? '#F4C7CE' : '#FBE2C2', color: c.muy ? '#7A0E1F' : '#7A4100', fontSize: 12 }}>{c.texto}</span>)}
               </div>
             ))}
+            {desvios.length > 8 && <button type="button" className="btn btn-sm btn-ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setTodosDesvios(!todosDesvios)}>{todosDesvios ? 'Ver menos' : `Ver todos (${desvios.length})`}</button>}
+            <span className="xs muted">Las alertas de otros días quedan en ⚙ Alertas.</span>
           </section>
           <section className="card" aria-label="Disponibilidad" style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <strong style={{ fontSize: 17 }}>Disponibilidad</strong>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}><strong style={{ fontSize: 17 }}>Disponibilidad</strong>
+              {vencidos > 0 && <span className="xs" style={{ color: '#8E1022', fontWeight: 700 }}>⚠ {vencidos} con el rechequeo vencido</span>}</div>
             <div className="disp-cajas" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 6 }}>
               {cajas.map(([k, n]) => (
                 <button key={k} type="button" className={`disp-${k}`} onClick={() => abrirLista(k)} style={{ border: 0, borderRadius: 12, padding: '10px 4px', background: DISP[k].bg, color: DISP[k].fg, cursor: 'pointer', textAlign: 'center' }}>
@@ -437,7 +452,7 @@ function ListaDisponibilidad({ tipo, hoy, edita, partes, elegidos, todosElegidos
               <div key={p.id} style={{ border: '1px solid var(--line-soft)', borderRadius: 10, overflow: 'hidden' }}>
                 <button type="button" aria-expanded={on} onClick={() => setAbierto(on ? null : p.id)}
                   style={{ width: '100%', border: 0, background: on ? 'var(--bg)' : '#fff', padding: '10px 12px', display: 'flex', justifyContent: 'space-between', gap: 8, cursor: 'pointer', font: 'inherit', textAlign: 'left' }}>
-                  <strong>{nombre(p)}</strong><span className="xs muted">{p.fecha_rechequeo ? `rechequeo ${ddmm(p.fecha_rechequeo)}` : 'hasta el alta'} {on ? '▴' : '▾'}</span>
+                  <strong>{nombre(p)}</strong><span className="row" style={{ gap: 6 }}><TextoRechequeo p={p} dia={hoy} /><span className="xs muted">{on ? '▴' : '▾'}</span></span>
                 </button>
                 {on && (
                   <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 6, background: 'var(--bg)' }}>

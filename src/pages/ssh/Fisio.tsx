@@ -47,7 +47,7 @@ export function usePartes(desde: string, perfil?: string) {
 
 // ---------- Disponibilidad ----------
 // Por jugador (registrado o con nombre escrito a mano) vale su último parte hasta ese día,
-// mientras no tenga el alta y el rechequeo no haya pasado.
+// hasta que le den el alta. Si el rechequeo ya pasó, sigue igual pero marcado «⚠ rechequeo vencido».
 // Adaptado se divide en «con partido» (puede jugar, con minutos limitados) y «sin partido».
 export type Disp = 'fuera' | 'adaptado_partido' | 'adaptado_sin' | 'disponible';
 export const dispDe = (p: Parte): Disp => (p.entrena === 'no' ? 'fuera'
@@ -68,7 +68,13 @@ const claveDe = (p: Parte) => p.perfil_id ?? `n:${(p.nombre_libre ?? '').trim().
 export function vigentes(partes: Parte[], dia: string): Parte[] {
   const ultimo = new Map<string, Parte>();
   for (const p of [...partes].filter((x) => x.fecha <= dia).sort((a, b) => a.fecha.localeCompare(b.fecha) || a.creado_en.localeCompare(b.creado_en))) ultimo.set(claveDe(p), p);
-  return [...ultimo.values()].filter((p) => (!p.fecha_alta || p.fecha_alta > dia) && (!p.fecha_rechequeo || p.fecha_rechequeo >= dia));
+  return [...ultimo.values()].filter((p) => !p.fecha_alta || p.fecha_alta > dia);
+}
+export const vencido = (p: Parte, dia: string) => !!p.fecha_rechequeo && p.fecha_rechequeo < dia && dispDe(p) !== 'disponible';
+// Texto corto del rechequeo para las listas
+export function TextoRechequeo({ p, dia }: { p: Parte; dia: string }) {
+  if (vencido(p, dia)) return <span className="xs" style={{ color: '#8E1022', fontWeight: 700, whiteSpace: 'nowrap' }}>⚠ rechequeo vencido ({ddmm(p.fecha_rechequeo!)})</span>;
+  return <span className="xs muted" style={{ whiteSpace: 'nowrap' }}>{p.fecha_rechequeo ? `rechequeo ${ddmm(p.fecha_rechequeo)}` : 'hasta el alta'}</span>;
 }
 
 export function useJugadores() {
@@ -92,7 +98,10 @@ export default function PestanaFisio({ edita }: { edita: boolean }) {
   const [filtro, setFiltro] = useState('');
   const [errorAccion, setErrorAccion] = useState('');
 
-  const rechequeos = useMemo(() => (lista ?? []).filter((p) => p.fecha_rechequeo && p.fecha_rechequeo >= hoy).sort((a, b) => a.fecha_rechequeo!.localeCompare(b.fecha_rechequeo!)), [lista, hoy]);
+  const rechequeos = useMemo(() => {
+    const vencidos = vigentes(lista ?? [], hoy).filter((p) => vencido(p, hoy));
+    return [...vencidos, ...(lista ?? []).filter((p) => p.fecha_rechequeo && p.fecha_rechequeo >= hoy && !p.fecha_alta)].sort((a, b) => a.fecha_rechequeo!.localeCompare(b.fecha_rechequeo!));
+  }, [lista, hoy]);
   const visibles = (lista ?? []).filter((p) => !filtro || p.perfil_id === filtro);
 
   async function alta(p: Parte, fecha: string | null) {
@@ -118,10 +127,10 @@ export default function PestanaFisio({ edita }: { edita: boolean }) {
 
       {rechequeos.length > 0 && (
         <section className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <strong style={{ fontSize: 16 }}>Próximos rechequeos</strong>
+          <strong style={{ fontSize: 16 }}>Rechequeos</strong>
           {rechequeos.map((p) => (
-            <div key={p.id} className="row" style={{ gap: 8, padding: '6px 10px', borderRadius: 8, background: p.fecha_rechequeo === hoy ? '#FDF1E3' : 'var(--bg)' }}>
-              <strong style={{ minWidth: 92 }}>{p.fecha_rechequeo === hoy ? 'Hoy' : fechaLarga(p.fecha_rechequeo!).split(' de ')[0]}</strong>
+            <div key={p.id} className="row" style={{ gap: 8, padding: '6px 10px', borderRadius: 8, background: vencido(p, hoy) ? '#FBE3E6' : p.fecha_rechequeo === hoy ? '#FDF1E3' : 'var(--bg)' }}>
+              <strong style={{ minWidth: 92, color: vencido(p, hoy) ? '#8E1022' : undefined }}>{vencido(p, hoy) ? `⚠ Vencido ${ddmm(p.fecha_rechequeo!)}` : p.fecha_rechequeo === hoy ? 'Hoy' : fechaLarga(p.fecha_rechequeo!).split(' de ')[0]}</strong>
               <span style={{ flex: 1 }}>{nombre(p)} <span className="small muted">· {p.motivo.slice(0, 80)}</span></span>
             </div>
           ))}
