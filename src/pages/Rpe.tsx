@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Gracias from '../components/Gracias';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { RPE } from '../lib/wellness';
-import { hoyIso } from '../lib/calendario';
+import HoyAyer, { faltaFuncionNueva, fechaDe, type Dia } from '../components/HoyAyer';
 import { useSesion } from '../lib/sesion';
 
 export default function Rpe() {
   const { perfil } = useSesion();
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  // De madrugada (antes de las 6) lo pendiente es el RPE de ayer: se abre en «ayer».
+  const [dia, setDia] = useState<Dia>(params.get('dia') === 'ayer' || (params.get('dia') !== 'hoy' && new Date().getHours() < 6) ? 'ayer' : 'hoy');
   const [valor, setValor] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -18,14 +21,16 @@ export default function Rpe() {
 
   useEffect(() => {
     if (!perfil) return;
-    supabase.from('rpe').select('valor').eq('perfil_id', perfil.id).eq('fecha', hoyIso()).maybeSingle()
+    setValor(null);
+    supabase.from('rpe').select('valor').eq('perfil_id', perfil.id).eq('fecha', fechaDe(dia)).maybeSingle()
       .then(({ data }) => { if (data) setValor(data.valor); });
-  }, [perfil]);
+  }, [perfil, dia]);
 
   // Tocar un número ya lo guarda (con una pausa cortita por si corrige al toque).
   async function enviar(v: number) {
     setEnviando(true); setError('');
-    const { error } = await supabase.rpc('guardar_rpe', { p_valor: v });
+    let { error } = await supabase.rpc('guardar_rpe', { p_valor: v, p_fecha: fechaDe(dia) });
+    if (error && dia === 'hoy' && faltaFuncionNueva(error.message)) ({ error } = await supabase.rpc('guardar_rpe', { p_valor: v }));
     setEnviando(false);
     if (error) { setError(mensajeError(error)); return; }
     setListo(true);
@@ -36,14 +41,15 @@ export default function Rpe() {
     espera.current = window.setTimeout(() => { void enviar(v); }, 600);
   }
   const cerrar = useCallback(() => nav('/', { replace: true }), [nav]);
-  if (listo && valor) return <Gracias titulo="¡Gracias!" detalle={`Tu RPE de hoy quedó guardado: ${valor}. Si te equivocaste, volvé a entrar y tocá otro número.`} onCerrar={cerrar} />;
+  if (listo && valor) return <Gracias titulo="¡Gracias!" detalle={`Tu RPE de ${dia} quedó guardado: ${valor}. Si te equivocaste, volvé a entrar y tocá otro número.`} onCerrar={cerrar} />;
 
   return (
     <div className="stack" style={{ maxWidth: 520, margin: '0 auto' }}>
       <div>
-        <h1 className="display" style={{ fontSize: 36 }}>¿Qué tan duro fue hoy?</h1>
+        <h1 className="display" style={{ fontSize: 36 }}>¿Qué tan duro fue {dia}?</h1>
         <p className="muted small" style={{ margin: '6px 0 0' }}>Piensa en todo el trabajo del día: fuerza y pista.</p>
       </div>
+      <HoyAyer dia={dia} onCambio={(d) => { if (espera.current) window.clearTimeout(espera.current); setDia(d); }} disabled={enviando} />
       <div role="radiogroup" aria-label="Esfuerzo del 1 al 10" className="card" style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {RPE.map((r) => {
           const on = valor === r.valor;

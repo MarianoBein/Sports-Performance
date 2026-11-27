@@ -3,7 +3,7 @@ import Gracias from '../components/Gracias';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase, mensajeError } from '../lib/supabase';
 import { COLORES_5, PREGUNTAS, TEXTO_5, bienDe, type Pregunta } from '../lib/wellness';
-import { hoyIso } from '../lib/calendario';
+import HoyAyer, { faltaFuncionNueva, fechaDe, type Dia } from '../components/HoyAyer';
 import { useSesion } from '../lib/sesion';
 
 type Valores = Record<Pregunta['clave'], number | null>;
@@ -14,6 +14,7 @@ export default function Wellness() {
   const [params] = useSearchParams();
   const volver = params.get('volver');
   const destino = volver && /^\/[a-z-]*$/.test(volver) ? volver : '/';
+  const [dia, setDia] = useState<Dia>(params.get('dia') === 'ayer' ? 'ayer' : 'hoy');
   const [v, setV] = useState<Valores>({ sueno: null, fatiga: null, estres: null, dolor: null });
   const [error, setError] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -24,18 +25,21 @@ export default function Wellness() {
   // Si ya contestó hoy, se cargan sus respuestas para poder corregirlas.
   useEffect(() => {
     if (!perfil) return;
-    supabase.from('wellness').select('sueno,fatiga,estres,dolor').eq('perfil_id', perfil.id).eq('fecha', hoyIso()).maybeSingle()
+    setV({ sueno: null, fatiga: null, estres: null, dolor: null });
+    supabase.from('wellness').select('sueno,fatiga,estres,dolor').eq('perfil_id', perfil.id).eq('fecha', fechaDe(dia)).maybeSingle()
       .then(({ data }) => {
         if (data) setV({ sueno: bienDe('sueno', data.sueno), fatiga: bienDe('fatiga', data.fatiga), estres: bienDe('estres', data.estres), dolor: bienDe('dolor', data.dolor) });
       });
-  }, [perfil]);
+  }, [perfil, dia]);
 
   const completo = PREGUNTAS.every((p) => v[p.clave] !== null);
 
   // Cuando están las cuatro respuestas, se guarda solo (con una pausa por si cambia otra al toque).
   async function enviar(x: Valores) {
     setEnviando(true); setError('');
-    const { error } = await supabase.rpc('guardar_wellness', { p_sueno: x.sueno, p_fatiga: x.fatiga, p_estres: x.estres, p_dolor: x.dolor });
+    const base = { p_sueno: x.sueno, p_fatiga: x.fatiga, p_estres: x.estres, p_dolor: x.dolor };
+    let { error } = await supabase.rpc('guardar_wellness', { ...base, p_fecha: fechaDe(dia) });
+    if (error && dia === 'hoy' && faltaFuncionNueva(error.message)) ({ error } = await supabase.rpc('guardar_wellness', base));
     setEnviando(false);
     if (error) { setError(mensajeError(error)); return; }
     setListo(true);
@@ -47,14 +51,15 @@ export default function Wellness() {
     if (PREGUNTAS.every((p) => x[p.clave] !== null)) espera.current = window.setTimeout(() => { void enviar(x); }, 1200);
   }
   const cerrar = useCallback(() => nav(destino, { replace: true }), [nav, destino]);
-  if (listo) return <Gracias titulo="¡Gracias!" detalle="Tu wellness de hoy quedó guardado. Si te equivocaste, volvé a entrar y cambiá la respuesta." onCerrar={cerrar} />;
+  if (listo) return <Gracias titulo="¡Gracias!" detalle={`Tu wellness de ${dia} quedó guardado. Si te equivocaste, volvé a entrar y cambiá la respuesta.`} onCerrar={cerrar} />;
 
   return (
     <div className="stack" style={{ maxWidth: 520, margin: '0 auto' }}>
       <div>
-        <h1 className="display" style={{ fontSize: 36 }}>¿Cómo llegas hoy?</h1>
+        <h1 className="display" style={{ fontSize: 36 }}>{dia === 'hoy' ? '¿Cómo llegas hoy?' : '¿Cómo llegaste ayer?'}</h1>
         <p className="muted small" style={{ margin: '6px 0 0' }}>Cuatro respuestas. En todas, 5 es lo mejor.</p>
       </div>
+      <HoyAyer dia={dia} onCambio={(d) => { if (espera.current) window.clearTimeout(espera.current); setDia(d); }} disabled={enviando} />
       {PREGUNTAS.map((p) => {
         const sel = v[p.clave];
         return (

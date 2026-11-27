@@ -116,6 +116,14 @@ export default function Inicio() {
           <span className="btn btn-primary" style={{ pointerEvents: 'none' }}>Responder</span>
         </Link>
       )}
+      {estado?.es_jugador && (
+        <div className="row small" style={{ gap: 6, padding: '0 4px' }}>
+          <span className="muted">¿Te faltó algo de ayer?</span>
+          <Link to="/wellness?dia=ayer" style={{ color: 'var(--accent)', fontWeight: 600 }}>Wellness de ayer</Link>
+          <span className="muted">·</span>
+          <Link to="/rpe?dia=ayer" style={{ color: 'var(--accent)', fontWeight: 600 }}>RPE de ayer</Link>
+        </div>
+      )}
       {estado && estado.rpe_toca && !estado.rpe_hecho && !estado.rpe_disponible && (
         <div className="card row small" style={{ padding: '12px 16px' }}>
           <span className="muted">El RPE se habilita a las {estado.rpe_desde}.</span>
