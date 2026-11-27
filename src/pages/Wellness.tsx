@@ -62,23 +62,19 @@ export default function Wellness() {
             <legend style={{ float: 'left', padding: 0, fontSize: 16, fontWeight: 600 }}>
               {p.titulo}{p.ayuda && <span className="xs muted" style={{ fontWeight: 400 }}> · {p.ayuda}</span>}
             </legend>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0,1fr))', gap: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0,1fr))', gap: 4 }}>
               {[1, 2, 3, 4, 5].map((n) => {
                 const on = sel === n;
                 return (
                   <button key={n} type="button" aria-pressed={on} aria-label={`${n}: ${p.frases[n - 1]}`} disabled={enviando} onClick={() => elegir(p.clave, n)}
-                    style={{ height: 52, borderRadius: 12, fontSize: 18, fontWeight: 700, border: on ? `3px solid ${COLORES_5[n - 1]}` : '1.5px solid var(--field)',
+                    style={{ minHeight: 84, padding: '6px 1px', borderRadius: 12, border: on ? `3px solid ${COLORES_5[n - 1]}` : '1.5px solid var(--field)', cursor: 'pointer',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', gap: 3,
                       background: on ? COLORES_5[n - 1] : `${COLORES_5[n - 1]}1F`, color: on ? TEXTO_5[n - 1] : 'var(--ink)', transform: on ? 'scale(1.04)' : undefined }}>
-                    {n}
+                    <span style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.1 }}>{n}</span>
+                    <span style={{ fontSize: 'clamp(8px, 2.45vw, 12px)', fontWeight: 600, lineHeight: 1.15, textAlign: 'center', letterSpacing: '-0.02em', overflowWrap: 'normal', maxWidth: '100%' }}>{p.frases[n - 1]}</span>
                   </button>
                 );
               })}
-            </div>
-            <div style={{ minHeight: 22, textAlign: 'center', fontSize: 15, fontWeight: 600, color: sel ? 'var(--ink)' : 'var(--muted)' }}>
-              {sel ? p.frases[sel - 1] : 'Toca un número'}
-            </div>
-            <div className="row xs muted" style={{ justifyContent: 'space-between' }}>
-              <span>1 · {p.frases[0]}</span><span>5 · {p.frases[4]}</span>
             </div>
           </fieldset>
         );
